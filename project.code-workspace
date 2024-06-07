@@ -1,0 +1,35 @@
+// https://code.visualstudio.com/docs/editor/workspaces
+{
+	"folders": [
+		{
+			"path": "code",
+		},
+		{
+			"path": "project",
+		},
+		{
+			"path": ".",
+			"name": "/",
+		},
+	],
+	"settings": {
+		"files.exclude": {
+			"code": true,
+			"project": true,
+			"temp": true,
+			"build": true,
+			"**/.git": true,
+		},
+		"editor.insertSpaces": false,
+		"clangd.arguments": [
+			"--compile-commands-dir=${workspaceFolder\\/}/project",
+			"--header-insertion=never",
+		],
+	},
+	"extensions": {
+		"recommendations": [
+			"vadimcn.vscode-lldb",
+			"llvm-vs-code-extensions.vscode-clangd",
+		],
+	},
+}
