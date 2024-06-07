@@ -1,0 +1,39 @@
+{
+	"version": "2.0.0",
+	"presentation": {
+		"clear": true,
+		"panel": "shared",
+		"reveal": "never",
+		"revealProblems": "never",
+	},
+	"options": {"cwd": "."},
+	"tasks": [
+		{
+			"label": "Build",
+			"group": "build",
+			"type": "shell",
+			"command": "build.bat",
+			"args": [
+				"clean:false",
+				"toolset:clang",
+				"CRT:dynamic",
+				"optimize:inspect",
+				"arch:64",
+			],
+			"problemMatcher": {
+				"owner": "unknown",
+				"fileLocation": ["autoDetect", "${workspaceFolder}"],
+				"pattern": {
+					"regexp": "^ *((?:[a-zA-Z]:)?[^:]+): *([0-9]+): *(?:([0-9]+):)? *(error|warning|note): *(.+[^ ]) *$",
+					// start           |  ^ [spaces]
+					"file":     1, //  |  [letter:] mutiple-non-:  |  : [spaces]  |
+					"line":     2, //  |  digits                   |  : [spaces]  |
+					"column":   3, //  |  digits                   |  : [spaces]  |  optional
+					"severity": 4, //  |  error | warning | note   |  : [spaces]  |
+					"message":  5, //  |  trimmed message          |              |
+					// end             |  [spaces] $
+				}
+			},
+		},
+	],
+}
