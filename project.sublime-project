@@ -1,0 +1,84 @@
+// https://www.sublimetext.com/docs/projects.html
+{
+	"folders": [
+		{
+			"path": "code",
+		},
+		{
+			"path": "project",
+		},
+		{
+			"path": ".",
+			"name": "/",
+			"folder_exclude_patterns": [
+				"code",
+				"project",
+				"temp",
+				"build",
+				"**/.git",
+			],
+			"file_exclude_patterns": [
+				"*.sublime-workspace",
+			],
+		},
+	],
+	"settings": {
+		"translate_tabs_to_spaces": false,
+		"LSP": {
+			"clangd": {
+				"command": [
+					"clangd",
+					"--compile-commands-dir=${project_path}/project",
+					"--header-insertion=never",
+				],
+			},
+		},
+	},
+	"build_systems": [
+		{
+			"name": "Build",
+			// start     |  ^ [spaces]
+			// file      |  [letter:] mutiple-non-:  |  : [spaces]  |
+			// line      |  digits                   |  : [spaces]  |
+			// column    |  digits                   |  : [spaces]  |  optional
+			// severity  |  error | warning | note   |  : [spaces]  |  non-capturing
+			// message   |  trimmed message          |              |
+			// end       |  [spaces] $
+			"file_regex": "^ *((?:[a-zA-Z]:)?[^:]+): *([0-9]+): *(?:([0-9]+):)? *(?:error|warning|note): *(.+[^ ]) *$",
+			"working_dir": "${project_path:${folder}}",
+			"windows": {
+				"cmd": [
+					"build.bat",
+					"clean:false",
+					"toolset:clang",
+					"CRT:dynamic",
+					"optimize:inspect",
+					"arch:64",
+				],
+			},
+			"word_wrap": false,
+		},
+		{
+			"name": "Debug",
+			"working_dir": "${project_path:${folder}}",
+			"windows": {
+				"cmd": [
+					"debug.bat",
+					"toolset:remedybg",
+					"target:main.exe",
+				],
+			},
+			"quiet": true,
+		},
+		{
+			"name": "Run",
+			"working_dir": "${project_path:${folder}}",
+			"windows": {
+				"cmd": [
+					"build/main.exe",
+				],
+			},
+			"quiet": true,
+		},
+	],
+}

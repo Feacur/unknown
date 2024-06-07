@@ -1,0 +1,10 @@
+-ferror-limit=0
+
+-std=c99
+-m64
+
+-DBUILD_TARGET=BUILD_TARGET_TERMINAL
+-DBUILD_OPTIMIZE=BUILD_OPTIMIZE_DEVELOP
+
+-I../code
+-I../project

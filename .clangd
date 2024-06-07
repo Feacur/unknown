@@ -1,0 +1,10 @@
+# https://clangd.llvm.org/config
+
+If:
+	PathMatch: [code/.*\.h, code/.*\.c]
+
+CompileFlags:
+	Compiler: clang
+	# workaround: remove implicit ObjC assumptions
+	Remove: -xobjective-c++-header
+	Add: -xc
