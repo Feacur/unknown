@@ -662,6 +662,24 @@ void os_surface_get_size(u32 * width, u32 * height) {
 	*height = fl_os.height;
 }
 
+#include <vulkan/vulkan.h>
+#include <vulkan/vulkan_win32.h>
+
+void * os_vulkan_create_surface(void * instance, void * allocator) {
+	VkSurfaceKHR surface = VK_NULL_HANDLE;
+	vkCreateWin32SurfaceKHR(
+		instance,
+		&(VkWin32SurfaceCreateInfoKHR){
+			.sType = VK_STRUCTURE_TYPE_WIN32_SURFACE_CREATE_INFO_KHR,
+			.hinstance = fl_os.module,
+			.hwnd = fl_os.window,
+		},
+		allocator,
+		&surface
+	);
+	return (void *)surface;
+}
+
 // ---- ---- ---- ----
 // time
 // ---- ---- ---- ----

@@ -1,4 +1,5 @@
 #include "os.h"
+#include "gfx.h"
 
 int main(int argc, char * argv[]) {
 	fmt_print("[main] args:\n");
@@ -12,6 +13,7 @@ int main(int argc, char * argv[]) {
 		.window_size_y = 600,
 		.window_caption = "unknown",
 	});
+	gfx_init();
 
 	u64 const nanos_fixed_delta           = AsNanos(0.020000000);
 	u64 const nanos_variable_delta_limit  = AsNanos(0.050000000);
@@ -34,7 +36,7 @@ int main(int argc, char * argv[]) {
 		}
 
 		// -- variable timestep
-		(void)0; // @todo
+		gfx_tick();
 
 		// -- wait for the frame to end
 		u64 const nanos_payload_end = os_timer_get_nanos();
@@ -50,6 +52,7 @@ int main(int argc, char * argv[]) {
 		nanos_variable_delta = clamp_u64(nanos_frame_delta, 1, nanos_variable_delta_limit);
 	}
 
+	gfx_free();
 	os_free();
 
 	return 0;
