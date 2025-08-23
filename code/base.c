@@ -2,7 +2,7 @@
 #include <string.h>
 #include <math.h>
 
-#include "base.h"
+#include "os.h" // includes "base.h"
 
 /*
 @note floating point IEEE 754
@@ -865,6 +865,27 @@ mat4 const mat4_i = (mat4){
 	{0, 0, 1, 0},
 	{0, 0, 0, 1},
 };
+
+// ---- ---- ---- ----
+// file utilities
+// ---- ---- ---- ----
+
+struct Array_U8 base_file_read(char const * name) {
+	struct Array_U8 ret = {0};
+	struct OS_File * file = os_file_init((struct OS_File_IInfo){
+		.name = name,
+	});
+	if (file != NULL) {
+		u64 const required = os_file_get_size(file);
+		ret.capacity = min_u64(required + 1, ~ret.capacity);
+		AssertF(required <= ret.capacity, "file \"%s\" is too large %llu / %zu\n", name, required, ret.capacity);
+		ret.buffer = os_memory_heap(NULL, ret.capacity);
+		ret.count = os_file_read(file, 0, ret.capacity, ret.buffer);
+		if (ret.count < ret.capacity) ret.buffer[ret.count] = 0;
+		os_file_free(file);
+	}
+	return ret;
+}
 
 // ---- ---- ---- ----
 // formatting
