@@ -1,0 +1,6 @@
+# %LocalAppData%/clangd/config.yaml
+
+# https://clangd.llvm.org/config
+
+CompileFlags:
+  Add: -IC:/Program Files/VulkanSDK/1.4.309.0/Include
