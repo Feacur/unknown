@@ -464,6 +464,12 @@ uvec4 uvec4_muls(uvec4 l, u32 r);
 uvec4 uvec4_divs(uvec4 l, u32 r);
 
 // ---- ---- ---- ----
+// file utilities
+// ---- ---- ---- ----
+
+struct Array_U8 base_file_read(char const * name);
+
+// ---- ---- ---- ----
 // macros
 // ---- ---- ---- ----
 
