@@ -287,6 +287,12 @@ s32   vec2i_crs(vec2i l, vec2i r);
 vec3i vec3i_crs(vec3i l, vec3i r);
 
 // ---- ---- ---- ----
+// file utilities
+// ---- ---- ---- ----
+
+struct Array_U8 base_file_read(char const * name);
+
+// ---- ---- ---- ----
 // macros
 // ---- ---- ---- ----
 

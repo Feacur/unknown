@@ -2,7 +2,7 @@
 #include <string.h>
 #include <math.h>
 
-#include "base.h"
+#include "os.h"
 
 /*
 @note floating point IEEE 754
@@ -349,6 +349,28 @@ bits64 const BITS_F64_LIM  = ((bits64){.as_u = 0x7fefffffffffffffull}); // 2^102
 bits64 const BITS_F64_INF  = ((bits64){.as_u = 0x7ff0000000000000ull}); // 2^1024
 bits64 const BITS_F64_QNAN = ((bits64){.as_u = 0x7ff8000000000000ull}); // 2^1024 * (1 .. 2)
 bits64 const BITS_F64_SNAN = ((bits64){.as_u = 0x7ff4000000000000ull}); // 2^1024 * (1 .. 2)
+
+
+// ---- ---- ---- ----
+// file utilities
+// ---- ---- ---- ----
+
+struct Array_U8 base_file_read(char const * name) {
+	struct Array_U8 ret = {0};
+	struct OS_File * file = os_file_init((struct OS_File_IInfo){
+		.name = name,
+	});
+	if (file != NULL) {
+		u64 const required = os_file_get_size(file);
+		ret.capacity = min_u64(required + 1, ~ret.capacity);
+		Assert(required <= ret.capacity, "file \"%s\" is too large %llu / %zu\n", name, required, ret.capacity);
+		ret.buffer = os_memory_heap(NULL, ret.capacity);
+		ret.count = os_file_read(file, 0, ret.capacity, ret.buffer);
+		if (ret.count < ret.capacity) ret.buffer[ret.count] = 0;
+		os_file_free(file);
+	}
+	return ret;
+}
 
 // ---- ---- ---- ----
 // formatting
