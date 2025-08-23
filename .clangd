@@ -7,3 +7,7 @@ If:
 CompileFlags:
   Compiler: clang
   Add: [-xc, -std=c99]
+
+# N.B.: this config is not self-sufficient!
+# - `VulkanSDK` is an external user-level dependency
+# @see `project/clangd config.yaml`
