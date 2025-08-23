@@ -8,3 +8,7 @@ CompileFlags:
 	# workaround: remove implicit ObjC assumptions
 	Remove: -xobjective-c++-header
 	Add: -xc
+
+# N.B.: this config is not self-sufficient!
+# - `VulkanSDK` is an external system-wide dependency
+# @see `data/clangd config.yaml`
