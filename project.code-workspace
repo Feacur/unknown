@@ -5,6 +5,9 @@
 			"path": "code",
 		},
 		{
+			"path": "data",
+		},
+		{
 			"path": "project",
 		},
 		{
@@ -15,6 +18,7 @@
 	"settings": {
 		"files.exclude": {
 			"code": true,
+			"data": true,
 			"project": true,
 			"temp": true,
 			"build": true,
