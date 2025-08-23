@@ -96,6 +96,7 @@ goto :eof
 	echo.[compile async] %time%
 	(
 		%cc% "%code%/base.c" -o "base.o"
+		%cc% "%code%/os_windows.c" -o "os_windows.o"
 		%cc% "%code%/main.c" -o "main.o"
 
 		%resc% "%project%/windows_main.rc" -fo "windows_main.res"
@@ -105,6 +106,7 @@ goto :eof
 	echo.[link main.exe] %time%
 	%linkd% ^
 		"%temp%/base.o" ^
+		"%temp%/os_windows.o" ^
 		"%temp%/main.o" "%temp%/windows_main.res" ^
 		-out:"main.exe"
 
