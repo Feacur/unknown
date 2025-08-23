@@ -31,6 +31,8 @@ bool os_exit(int code);
 
 void os_surface_get_size(u32 * width, u32 * height);
 
+void * os_vulkan_create_surface(void * instance, void * allocator);
+
 // ---- ---- ---- ----
 // file
 // ---- ---- ---- ----

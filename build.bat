@@ -19,6 +19,7 @@ if [%arch%]     == [] set arch=64
 
 set root=%cd%
 set code=%root%/code
+set data=%root%/data
 set project=%root%/project
 set temp=%root%/temp
 
@@ -31,7 +32,7 @@ if "%clean%" == "true" (
 	del "temp\*" /s /q > nul
 )
 
-rem build
+rem prepare common tools
 where -q "glslc.exe" || (
 	if not "%VULKAN_SDK%" == "" (
 		set "PATH=%PATH%;%VULKAN_SDK%/Bin"
@@ -42,6 +43,17 @@ where -q "glslc.exe" || (
 	)
 )
 
+rem shader compiler flags
+set shaderc=start /d "build" /b glslc
+set shaderc=%shaderc% -Werror
+if "%optimize%" == "inspect" set shaderc=%shaderc% -O0 -g -DBUILD_OPTIMIZE=BUILD_OPTIMIZE_INSPECT
+if "%optimize%" == "develop" set shaderc=%shaderc% -O  -g -DBUILD_OPTIMIZE=BUILD_OPTIMIZE_DEVELOP
+if "%optimize%" == "release" set shaderc=%shaderc% -O     -DBUILD_OPTIMIZE=BUILD_OPTIMIZE_RELEASE
+
+set vertc=%shaderc% -DBUILD_STAGE=BUILD_STAGE_VERTEX
+set fragc=%shaderc% -DBUILD_STAGE=BUILD_STAGE_FRAGMENT
+
+rem build
 call :build_%toolset%
 
 endlocal
@@ -108,9 +120,13 @@ goto :eof
 	(
 		%cc% "%code%/base.c" -o "base.o"
 		%cc% "%code%/os_windows.c" -o "os_windows.o"
+		%cc% "%code%/gfx_vulkan.c" -o "gfx_vulkan.o"
 		%cc% "%code%/main.c" -o "main.o"
 
 		%resc% "%project%/windows_main.rc" -fo "windows_main.res"
+
+		%vertc% "%data%/shader.glsl" -o shader.vert.spirv
+		%fragc% "%data%/shader.glsl" -o shader.frag.spirv
 	) | pause > nul
 
 	rem link
@@ -119,6 +135,7 @@ goto :eof
 		"%temp%/base.o" ^
 		"%temp%/os_windows.o" ^
 		"%VULKAN_SDK%/Lib/vulkan-1.lib" ^
+		"%temp%/gfx_vulkan.o" ^
 		"%temp%/main.o" "%temp%/windows_main.res" ^
 		-out:"main.exe"
 

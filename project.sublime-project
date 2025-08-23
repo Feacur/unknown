@@ -5,6 +5,9 @@
 			"path": "code",
 		},
 		{
+			"path": "data",
+		},
+		{
 			"path": "project",
 		},
 		{
@@ -12,6 +15,7 @@
 			"name": "/",
 			"folder_exclude_patterns": [
 				"code",
+				"data",
 				"project",
 				"temp",
 				"build",
