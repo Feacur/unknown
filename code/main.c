@@ -1,14 +1,12 @@
-#include <stdio.h>
-
-#include "_project.h" // IWYU pragma: keep
+#include "base.h"
 
 int main(int argc, char * argv[]) {
-	printf("[main] args:\n");
+	fmt_print("[main] args:\n");
 	for (int i = 0; i < argc; i++) {
-		printf("- %s\n", argv[i]);
+		fmt_print("- %s\n", argv[i]);
 	}
-	printf("\n");
-	fgetc(stdin);
+	fmt_print("\n");
+	base_get_chr();
 	return 0;
 }
 
