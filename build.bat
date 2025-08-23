@@ -32,6 +32,16 @@ if "%clean%" == "true" (
 )
 
 rem build
+where -q "glslc.exe" || (
+	if not "%VULKAN_SDK%" == "" (
+		set "PATH=%PATH%;%VULKAN_SDK%/Bin"
+	)
+	where -q "glslc.exe" || (
+		echo.please, install "Vulkan SDK", https://vulkan.lunarg.com/sdk/home
+		exit /b 1
+	)
+)
+
 call :build_%toolset%
 
 endlocal
@@ -67,6 +77,7 @@ goto :eof
 	set cc=%cc% -std=c99 -fno-exceptions -fno-rtti -ffp-contract=off
 	set cc=%cc% -I"%code%" -I"%project%"
 	set cc=%cc% -I"%code%/_external"
+	set cc=%cc% -I"%VULKAN_SDK%/Include"
 	set cc=%cc% -flto=thin
 	if "%optimize%" == "inspect" set cc=%cc% -O0 -g -DBUILD_OPTIMIZE=BUILD_OPTIMIZE_INSPECT -DBUILD_TARGET=BUILD_TARGET_TERMINAL
 	if "%optimize%" == "develop" set cc=%cc% -Og -g -DBUILD_OPTIMIZE=BUILD_OPTIMIZE_DEVELOP -DBUILD_TARGET=BUILD_TARGET_TERMINAL
@@ -107,6 +118,7 @@ goto :eof
 	%linkd% ^
 		"%temp%/base.o" ^
 		"%temp%/os_windows.o" ^
+		"%VULKAN_SDK%/Lib/vulkan-1.lib" ^
 		"%temp%/main.o" "%temp%/windows_main.res" ^
 		-out:"main.exe"
 
