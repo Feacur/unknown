@@ -66,6 +66,7 @@ goto :eof
 	set cc=start /d "temp" /b clang -c -ansi -pedantic-errors
 	set cc=%cc% -std=c99 -fno-exceptions -fno-rtti -ffp-contract=off
 	set cc=%cc% -I"%code%" -I"%project%"
+	set cc=%cc% -I"%code%/_external"
 	set cc=%cc% -flto=thin
 	if "%optimize%" == "inspect" set cc=%cc% -O0 -g -DBUILD_OPTIMIZE=BUILD_OPTIMIZE_INSPECT -DBUILD_TARGET=BUILD_TARGET_TERMINAL
 	if "%optimize%" == "develop" set cc=%cc% -Og -g -DBUILD_OPTIMIZE=BUILD_OPTIMIZE_DEVELOP -DBUILD_TARGET=BUILD_TARGET_TERMINAL
@@ -94,6 +95,7 @@ goto :eof
 	rem it into a silent pause command
 	echo.[compile async] %time%
 	(
+		%cc% "%code%/base.c" -o "base.o"
 		%cc% "%code%/main.c" -o "main.o"
 
 		%resc% "%project%/windows_main.rc" -fo "windows_main.res"
@@ -102,6 +104,7 @@ goto :eof
 	rem link
 	echo.[link main.exe] %time%
 	%linkd% ^
+		"%temp%/base.o" ^
 		"%temp%/main.o" "%temp%/windows_main.res" ^
 		-out:"main.exe"
 
