@@ -13,6 +13,7 @@ int main(int argc, char * argv[]) {
 		.window_size_y = 600,
 		.window_caption = "unknown",
 	});
+	thread_ctx_init();
 	gfx_init();
 
 	u64 const nanos_fixed_delta           = AsNanos(0.020000000);
@@ -53,6 +54,7 @@ int main(int argc, char * argv[]) {
 	}
 
 	gfx_free();
+	thread_ctx_free();
 	os_free();
 
 	return 0;

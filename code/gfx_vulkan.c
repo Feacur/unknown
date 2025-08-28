@@ -287,7 +287,10 @@ void * gfx_get_instance_proc(char const * name) {
 
 AttrFileLocal()
 VkShaderModule gfx_create_shader_module(char const * name) {
-	struct Array_U8 const source = base_file_read(name);
+	struct Arena * scratch = thread_ctx_get_scratch();
+	u64 const scratch_position = arena_get_position(scratch);
+
+	struct Array_U8 const source = base_file_read(scratch, name);
 	VkShaderModule ret;
 	vkCreateShaderModule(
 		fl_gfx.device,
@@ -299,12 +302,17 @@ VkShaderModule gfx_create_shader_module(char const * name) {
 		&fl_gfx.allocator,
 		&ret
 	);
-	os_memory_heap(source.buffer, 0);
+
+	arena_set_position(scratch, scratch_position);
 	return ret;
 }
 
 void gfx_init(void) {
+	struct Arena * scratch = thread_ctx_get_scratch();
+	u64 const scratch_position = arena_get_position(scratch);
+
 	fl_gfx.allocator = (VkAllocationCallbacks){
+		// .pUserData = fl_gfx.arena,
 		.pfnAllocation   = gfx_memory_allocate,
 		.pfnReallocation = gfx_memory_reallocate,
 		.pfnFree         = gfx_memory_free,
@@ -333,37 +341,29 @@ void gfx_init(void) {
 	}
 
 	// -- collect available instance extensions
-	uint32_t instance_extension_properties_count;
-	vkEnumerateInstanceExtensionProperties(NULL, &instance_extension_properties_count, NULL);
-	enum { INSTANCE_EXTENSION_PROPERTIES_LIMIT = 32 }; // @todo replace with an arena
-	uint32_t instance_extension_properties_enum = instance_extension_properties_count < INSTANCE_EXTENSION_PROPERTIES_LIMIT
-		? instance_extension_properties_count
-		: INSTANCE_EXTENSION_PROPERTIES_LIMIT;
-	VkExtensionProperties instance_extension_properties[INSTANCE_EXTENSION_PROPERTIES_LIMIT];
-	vkEnumerateInstanceExtensionProperties(NULL, &instance_extension_properties_enum, instance_extension_properties);
+	uint32_t available_instance_extension_properties_count;
+	vkEnumerateInstanceExtensionProperties(NULL, &available_instance_extension_properties_count, NULL);
+	VkExtensionProperties * available_instance_extension_properties = ArenaPushArray(scratch, VkExtensionProperties, available_instance_extension_properties_count);
+	vkEnumerateInstanceExtensionProperties(NULL, &available_instance_extension_properties_count, available_instance_extension_properties);
 
 	// -- log available instance extensions
-	fmt_print("[gfx] available instance extensions (%u / %u):\n", instance_extension_properties_enum, instance_extension_properties_count);
-	for (uint32_t i = 0; i < instance_extension_properties_enum; i++) {
-		VkExtensionProperties const * it = instance_extension_properties + i;
+	fmt_print("[gfx] available instance extensions (%u):\n", available_instance_extension_properties_count);
+	for (uint32_t i = 0; i < available_instance_extension_properties_count; i++) {
+		VkExtensionProperties const * it = available_instance_extension_properties + i;
 		fmt_print("- %s\n", it->extensionName);
 	}
 	fmt_print("\n");
 
 	// -- collect available instance layers
-	uint32_t instance_layer_properties_count;
-	vkEnumerateInstanceLayerProperties(&instance_layer_properties_count, NULL);
-	enum { INSTANCE_LAYER_PROPERTIES_LIMIT = 32 }; // @todo replace with an arena
-	uint32_t instance_layer_properties_enum = instance_layer_properties_count < INSTANCE_LAYER_PROPERTIES_LIMIT
-		? instance_layer_properties_count
-		: INSTANCE_LAYER_PROPERTIES_LIMIT;
-	VkLayerProperties instance_layer_properties[INSTANCE_LAYER_PROPERTIES_LIMIT];
-	vkEnumerateInstanceLayerProperties(&instance_layer_properties_enum, instance_layer_properties);
+	uint32_t available_instance_layer_properties_count;
+	vkEnumerateInstanceLayerProperties(&available_instance_layer_properties_count, NULL);
+	VkLayerProperties * available_instance_layer_properties = ArenaPushArray(scratch, VkLayerProperties, available_instance_layer_properties_count);
+	vkEnumerateInstanceLayerProperties(&available_instance_layer_properties_count, available_instance_layer_properties);
 
 	// -- log available instance layers
-	fmt_print("[gfx] available instance layers (%u / %u):\n", instance_layer_properties_enum, instance_layer_properties_count);
-	for (uint32_t i = 0; i < instance_layer_properties_enum; i++) {
-		VkLayerProperties const * it = instance_layer_properties + i;
+	fmt_print("[gfx] available instance layers (%u):\n", available_instance_layer_properties_count);
+	for (uint32_t i = 0; i < available_instance_layer_properties_count; i++) {
+		VkLayerProperties const * it = available_instance_layer_properties + i;
 
 		uint32_t const v[4] = {
 			VK_API_VERSION_VARIANT(it->specVersion),
@@ -377,22 +377,42 @@ void gfx_init(void) {
 	fmt_print("\n");
 
 	// --prepare instance extensions
-	//   @todo check availability
-	char const * const instance_extensions[] = {
-		VK_KHR_SURFACE_EXTENSION_NAME,
-		"VK_KHR_win32_surface", // @todo move to an OS-specific location
-		#if GFX_ENABLE_DEBUG
-		VK_EXT_DEBUG_UTILS_EXTENSION_NAME,
-		#endif
-	};
+	uint32_t requested_instance_extensions_count = 0;
+	char const ** const requested_instance_extensions = ArenaPushArray(scratch, char const *, available_instance_extension_properties_count);
+	os_vulkan_push_extensions(&requested_instance_extensions_count, requested_instance_extensions);
+	requested_instance_extensions[requested_instance_extensions_count++] = VK_KHR_SURFACE_EXTENSION_NAME;
+	#if GFX_ENABLE_DEBUG
+	requested_instance_extensions[requested_instance_extensions_count++] = VK_EXT_DEBUG_UTILS_EXTENSION_NAME;
+	#endif
+
+	for (uint32_t i = 0; i < requested_instance_extensions_count; i++) {
+		char const * requested = requested_instance_extensions[i];
+		for (uint32_t i = 0; i < available_instance_extension_properties_count; i++) {
+			char const * available = available_instance_extension_properties[i].extensionName;
+			if (str_equals(requested, available))
+				goto instance_extension_found;
+		}
+		AssertF(false, "extension \"%s\" is not available\n", requested);
+		instance_extension_found:;
+	}
 
 	// --prepare instance layers
-	//   @todo check availability
-	char const * const instance_layers[] = {
+	char const * const requested_instance_layers[] = {
 		#if GFX_ENABLE_DEBUG
 		"VK_LAYER_KHRONOS_validation",
 		#endif
 	};
+
+	for (uint32_t i = 0; i < ArrayCount(requested_instance_layers); i++) {
+		char const * requested = requested_instance_layers[i];
+		for (uint32_t i = 0; i < available_instance_layer_properties_count; i++) {
+			char const * available = available_instance_layer_properties[i].layerName;
+			if (str_equals(requested, available))
+				goto instance_layer_found;
+		}
+		AssertF(false, "layer \"%s\" is not available\n", requested);
+		instance_layer_found:;
+	}
 
 	// -- prepare debug
 	#if GFX_ENABLE_DEBUG
@@ -415,11 +435,11 @@ void gfx_init(void) {
 		&(VkInstanceCreateInfo){
 			.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO,
 			// extensions
-			.enabledExtensionCount = ArrayCount(instance_extensions),
-			.ppEnabledExtensionNames = instance_extensions,
+			.enabledExtensionCount = requested_instance_extensions_count,
+			.ppEnabledExtensionNames = requested_instance_extensions,
 			// layers
-			.enabledLayerCount = ArrayCount(instance_layers),
-			.ppEnabledLayerNames = instance_layers,
+			.enabledLayerCount = ArrayCount(requested_instance_layers),
+			.ppEnabledLayerNames = requested_instance_layers,
 			// application
 			.pApplicationInfo = &(VkApplicationInfo){
 				.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO,
@@ -458,95 +478,73 @@ void gfx_init(void) {
 	// -- collect physical device handles
 	uint32_t physical_devices_count;
 	vkEnumeratePhysicalDevices(fl_gfx.instance, &physical_devices_count, NULL);
-	enum { PHYSICAL_DEVICES_LIMIT = 8 }; // @todo replace with an arena
-	uint32_t physical_devices_enum = physical_devices_count < PHYSICAL_DEVICES_LIMIT
-		? physical_devices_count
-		: PHYSICAL_DEVICES_LIMIT;
-	VkPhysicalDevice physical_devices[PHYSICAL_DEVICES_LIMIT];
-	vkEnumeratePhysicalDevices(fl_gfx.instance, &physical_devices_enum, physical_devices);
+	VkPhysicalDevice * physical_devices = ArenaPushArray(scratch, VkPhysicalDevice, physical_devices_count);
+	vkEnumeratePhysicalDevices(fl_gfx.instance, &physical_devices_count, physical_devices);
 
 	// -- collect physical device properties
-	VkPhysicalDeviceProperties physical_device_properties[PHYSICAL_DEVICES_LIMIT];
-	for (uint32_t i = 0; i < physical_devices_enum; i++) {
+	VkPhysicalDeviceProperties * physical_device_properties = ArenaPushArray(scratch, VkPhysicalDeviceProperties, physical_devices_count);
+	for (uint32_t i = 0; i < physical_devices_count; i++) {
 		VkPhysicalDeviceProperties * properties = physical_device_properties + i;
 		vkGetPhysicalDeviceProperties(physical_devices[i], properties);
 	}
 
 	// -- collect physical device surface capabilities
-	VkSurfaceCapabilitiesKHR surface_capabilities[PHYSICAL_DEVICES_LIMIT];
-	for (uint32_t i = 0; i < physical_devices_enum; i++) {
+	VkSurfaceCapabilitiesKHR * surface_capabilities = ArenaPushArray(scratch, VkSurfaceCapabilitiesKHR, physical_devices_count);
+	for (uint32_t i = 0; i < physical_devices_count; i++) {
 		VkSurfaceCapabilitiesKHR * capabilities = surface_capabilities + i;
 		vkGetPhysicalDeviceSurfaceCapabilitiesKHR(physical_devices[i], fl_gfx.surface, capabilities);
 	}
 
 	// -- collect physical device surface formats
-	uint32_t surface_formats_counts[PHYSICAL_DEVICES_LIMIT];
-	uint32_t surface_formats_enums[PHYSICAL_DEVICES_LIMIT];
-	enum { PHYSICAL_DEVICES_SURFACE_FORMATS_LIMIT = 8 }; // @todo replace with an arena
-	VkSurfaceFormatKHR surface_formats_set[PHYSICAL_DEVICES_SURFACE_FORMATS_LIMIT][PHYSICAL_DEVICES_LIMIT];
-	for (uint32_t i = 0; i < physical_devices_enum; i++) {
+	uint32_t * surface_formats_counts = ArenaPushArray(scratch, uint32_t, physical_devices_count);
+	VkSurfaceFormatKHR ** surface_formats_set = ArenaPushArray(scratch, VkSurfaceFormatKHR *, physical_devices_count);
+	for (uint32_t i = 0; i < physical_devices_count; i++) {
 		VkPhysicalDevice const handle = physical_devices[i];
 		uint32_t * surface_formats_count = surface_formats_counts + i;
 		vkGetPhysicalDeviceSurfaceFormatsKHR(handle, fl_gfx.surface, surface_formats_count, NULL);
-		uint32_t * surface_formats_enum = surface_formats_enums + i;
-		*surface_formats_enum = *surface_formats_count < PHYSICAL_DEVICES_SURFACE_FORMATS_LIMIT
-			? *surface_formats_count
-			: PHYSICAL_DEVICES_SURFACE_FORMATS_LIMIT;
+		surface_formats_set[i] = ArenaPushArray(scratch, VkSurfaceFormatKHR, *surface_formats_count);
 		VkSurfaceFormatKHR * surface_formats = surface_formats_set[i];
-		vkGetPhysicalDeviceSurfaceFormatsKHR(handle, fl_gfx.surface, surface_formats_enum, surface_formats);
+		vkGetPhysicalDeviceSurfaceFormatsKHR(handle, fl_gfx.surface, surface_formats_count, surface_formats);
 	}
 
 	// -- collect physical device surface formats
-	uint32_t present_modes_counts[PHYSICAL_DEVICES_LIMIT];
-	uint32_t present_modes_enums[PHYSICAL_DEVICES_LIMIT];
-	enum { PHYSICAL_DEVICES_PRESENT_MODES_LIMIT = 8 }; // @todo replace with an arena
-	VkPresentModeKHR present_modes_set[PHYSICAL_DEVICES_PRESENT_MODES_LIMIT][PHYSICAL_DEVICES_LIMIT];
-	for (uint32_t i = 0; i < physical_devices_enum; i++) {
+	uint32_t * present_modes_counts = ArenaPushArray(scratch, uint32_t, physical_devices_count);
+	VkPresentModeKHR ** present_modes_set = ArenaPushArray(scratch, VkPresentModeKHR *, physical_devices_count);
+	for (uint32_t i = 0; i < physical_devices_count; i++) {
 		VkPhysicalDevice const handle = physical_devices[i];
 		uint32_t * present_modes_count = present_modes_counts + i;
 		vkGetPhysicalDeviceSurfacePresentModesKHR(handle, fl_gfx.surface, present_modes_count, NULL);
-		uint32_t * present_modes_enum = present_modes_enums + i;
-		*present_modes_enum = *present_modes_count < PHYSICAL_DEVICES_PRESENT_MODES_LIMIT
-			? *present_modes_count
-			: PHYSICAL_DEVICES_PRESENT_MODES_LIMIT;
+		present_modes_set[i] = ArenaPushArray(scratch, VkPresentModeKHR, *present_modes_count);
 		VkPresentModeKHR * present_modes = present_modes_set[i];
-		vkGetPhysicalDeviceSurfacePresentModesKHR(handle, fl_gfx.surface, present_modes_enum, present_modes);
+		vkGetPhysicalDeviceSurfacePresentModesKHR(handle, fl_gfx.surface, present_modes_count, present_modes);
 	}
 
 	// -- collect physical devices extensions
-	uint32_t physical_devices_extensions_counts[PHYSICAL_DEVICES_LIMIT];
-	uint32_t physical_devices_extensions_enums[PHYSICAL_DEVICES_LIMIT];
-	enum { PHYSICAL_DEVICE_EXTENSION_PROPERTIES_LIMIT = 256 }; // @todo replace with an arena
-	VkExtensionProperties physical_devices_extensions[PHYSICAL_DEVICES_LIMIT][PHYSICAL_DEVICE_EXTENSION_PROPERTIES_LIMIT];
-	for (uint32_t i = 0; i < physical_devices_enum; i++) {
+	uint32_t * physical_devices_extensions_counts = ArenaPushArray(scratch, uint32_t, physical_devices_count);
+	VkExtensionProperties ** physical_devices_extensions = ArenaPushArray(scratch, VkExtensionProperties *, physical_devices_count);
+	for (uint32_t i = 0; i < physical_devices_count; i++) {
 		VkPhysicalDevice const handle = physical_devices[i];
 		uint32_t * extensions_count = physical_devices_extensions_counts + i;
 		vkEnumerateDeviceExtensionProperties(handle, NULL, extensions_count, NULL);
-		uint32_t * extensions_enum = physical_devices_extensions_enums + i;
-		*extensions_enum = *extensions_count < PHYSICAL_DEVICE_EXTENSION_PROPERTIES_LIMIT
-			? *extensions_count
-			: PHYSICAL_DEVICE_EXTENSION_PROPERTIES_LIMIT;
+		physical_devices_extensions[i] = ArenaPushArray(scratch, VkExtensionProperties, *extensions_count);
 		VkExtensionProperties * extensions = physical_devices_extensions[i];
-		vkEnumerateDeviceExtensionProperties(handle, NULL, extensions_enum, extensions);
+		vkEnumerateDeviceExtensionProperties(handle, NULL, extensions_count, extensions);
 	}
 
 	// -- log physical devices
-	fmt_print("[gfx] physical devices (%u / %u):\n", physical_devices_enum, physical_devices_count);
-	for (uint32_t device_i = 0; device_i < physical_devices_enum; device_i++) {
-		VkPhysicalDevice           const   handle           = physical_devices[device_i];
-		VkPhysicalDeviceProperties const * properties       = physical_device_properties + device_i;
-		VkSurfaceCapabilitiesKHR   const * capabilities     = surface_capabilities + device_i;
+	fmt_print("[gfx] physical devices (%u / %u):\n", physical_devices_count, physical_devices_count);
+	for (uint32_t device_i = 0; device_i < physical_devices_count; device_i++) {
+		VkPhysicalDevice           const   handle       = physical_devices[device_i];
+		VkPhysicalDeviceProperties const * properties   = physical_device_properties + device_i;
+		VkSurfaceCapabilitiesKHR   const * capabilities = surface_capabilities + device_i;
 
 		uint32_t           const   surface_formats_count = surface_formats_counts[device_i];
-		uint32_t           const   surface_formats_enum  = surface_formats_enums[device_i];
 		VkSurfaceFormatKHR const * surface_formats       = surface_formats_set[device_i];
 
 		uint32_t         const   present_modes_count = present_modes_counts[device_i];
-		uint32_t         const   present_modes_enum  = present_modes_enums[device_i];
 		VkPresentModeKHR const * present_modes       = present_modes_set[device_i];
 
 		uint32_t              const   extensions_count = physical_devices_extensions_counts[device_i];
-		uint32_t              const   extensions_enum  = physical_devices_extensions_enums[device_i];
 		VkExtensionProperties const * extensions       = physical_devices_extensions[device_i];
 
 		str8 const type_text = gfx_to_string_physical_device_type(properties->deviceType);
@@ -574,8 +572,8 @@ void gfx_init(void) {
 		fmt_print("      composite alpha: 0b%08b\n", capabilities->supportedCompositeAlpha);
 		fmt_print("      usage flags:     0b%08b\n", capabilities->supportedUsageFlags);
 
-		fmt_print("  surface formats (%u / %u):\n", surface_formats_enum, surface_formats_count);
-		for (uint32_t i = 0; i < surface_formats_enum; i++) {
+		fmt_print("  surface formats (%u):\n", surface_formats_count);
+		for (uint32_t i = 0; i < surface_formats_count; i++) {
 			VkSurfaceFormatKHR const * it = surface_formats + i;
 			str8 const surface_format_text = gfx_to_string_format(it->format);
 			str8 const color_space_text = gfx_to_string_color_space(it->colorSpace);
@@ -585,15 +583,15 @@ void gfx_init(void) {
 			);
 		}
 
-		fmt_print("  present modes (%u / %u):\n", present_modes_enum, present_modes_count);
-		for (uint32_t i = 0; i < present_modes_enum; i++) {
+		fmt_print("  present modes (%u):\n", present_modes_count);
+		for (uint32_t i = 0; i < present_modes_count; i++) {
 			VkPresentModeKHR const it = present_modes[i];
 			str8 const it_text = gfx_to_string_present_mode(it);
 			fmt_print("  - %.*s\n", (int)it_text.count, it_text.buffer);
 		}
 
-		fmt_print("  extensions (%u / %u):\n", extensions_enum, extensions_count);
-		for (uint32_t i = 0; i < extensions_enum; i++) {
+		fmt_print("  extensions (%u):\n", extensions_count);
+		for (uint32_t i = 0; i < extensions_count; i++) {
 			VkExtensionProperties const * it = extensions + i; (void)it;
 			// fmt_print("  - %s\n", it->extensionName);
 		}
@@ -605,9 +603,9 @@ void gfx_init(void) {
 	//    @todo probably later compute ones will come handy too
 	//    secondly, we need another compatible with the surface
 	//    and it's likely to be the same one
-	uint32_t queue_family_graphics_choices[PHYSICAL_DEVICES_LIMIT] = {0}; // @note that is `index + 1`
-	uint32_t queue_family_surface_choices[PHYSICAL_DEVICES_LIMIT] = {0}; // @note that is `index + 1`
-	for (uint32_t device_i = 0; device_i < physical_devices_enum; device_i++) {
+	uint32_t * queue_family_graphics_choices = ArenaPushArray(scratch, uint32_t, physical_devices_count); // @note that is `index + 1`
+	uint32_t * queue_family_surface_choices = ArenaPushArray(scratch, uint32_t, physical_devices_count); // @note that is `index + 1`
+	for (uint32_t device_i = 0; device_i < physical_devices_count; device_i++) {
 		VkPhysicalDevice const physical_device = physical_devices[device_i];
 
 		// -- collect various device properties
@@ -651,7 +649,7 @@ void gfx_init(void) {
 	// -- choose a device to go with
 	//    we are interested in an actual GPU
 	uint32_t physical_device_choice = 0; // @note that is `index + 1`
-	for (uint32_t i = 0; i < physical_devices_enum && !physical_device_choice; i++) {
+	for (uint32_t i = 0; i < physical_devices_count && !physical_device_choice; i++) {
 		VkPhysicalDeviceProperties const * it = physical_device_properties + i;
 		if (it->deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU
 			&& queue_family_graphics_choices[i] == queue_family_surface_choices[i]
@@ -659,14 +657,14 @@ void gfx_init(void) {
 			&& queue_family_surface_choices[i])
 				physical_device_choice = i + 1;
 	}
-	for (uint32_t i = 0; i < physical_devices_enum && !physical_device_choice; i++) {
+	for (uint32_t i = 0; i < physical_devices_count && !physical_device_choice; i++) {
 		VkPhysicalDeviceProperties const * it = physical_device_properties + i;
 		if (it->deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU
 			&& queue_family_graphics_choices[i]
 			&& queue_family_surface_choices[i])
 				physical_device_choice = i + 1;
 	}
-	for (uint32_t i = 0; i < physical_devices_enum && !physical_device_choice; i++) {
+	for (uint32_t i = 0; i < physical_devices_count && !physical_device_choice; i++) {
 		VkPhysicalDeviceProperties const * it = physical_device_properties + i;
 		if (it->deviceType == VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU
 			&& queue_family_graphics_choices[i] == queue_family_surface_choices[i]
@@ -674,7 +672,7 @@ void gfx_init(void) {
 			&& queue_family_surface_choices[i])
 				physical_device_choice = i + 1;
 	}
-	for (uint32_t i = 0; i < physical_devices_enum && !physical_device_choice; i++) {
+	for (uint32_t i = 0; i < physical_devices_count && !physical_device_choice; i++) {
 		VkPhysicalDeviceProperties const * it = physical_device_properties + i;
 		if (it->deviceType == VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU
 			&& queue_family_graphics_choices[i]
@@ -710,10 +708,22 @@ void gfx_init(void) {
 		};
 
 	// --prepare logcal device layers
-	//   @todo check availability
-	char const * const device_extensions[] = {
+	char const * const requested_device_extensions[] = {
 		VK_KHR_SWAPCHAIN_EXTENSION_NAME,
 	};
+
+	uint32_t              const   chosen_device_extensions_count = physical_devices_extensions_counts[physical_device_index];
+	VkExtensionProperties const * chosen_device_extensions       = physical_devices_extensions[physical_device_index];
+	for (uint32_t i = 0; i < ArrayCount(requested_device_extensions); i++) {
+		char const * requested = requested_device_extensions[i];
+		for (uint32_t i = 0; i < chosen_device_extensions_count; i++) {
+			char const * available = chosen_device_extensions[i].extensionName;
+			if (str_equals(requested, available))
+				goto device_extension_found;
+		}
+		AssertF(false, "device extension \"%s\" is not available\n", requested);
+		device_extension_found:;
+	}
 
 	// -- create a logical device
 	vkCreateDevice(
@@ -724,8 +734,8 @@ void gfx_init(void) {
 			.queueCreateInfoCount = queues_count,
 			.pQueueCreateInfos = queue_infos,
 			// extensions
-			.enabledExtensionCount = ArrayCount(device_extensions),
-			.ppEnabledExtensionNames = device_extensions,
+			.enabledExtensionCount = ArrayCount(requested_device_extensions),
+			.ppEnabledExtensionNames = requested_device_extensions,
 		},
 		&fl_gfx.allocator,
 		&fl_gfx.device
@@ -742,16 +752,16 @@ void gfx_init(void) {
 		os_surface_get_size(&fl_gfx.swapchain_extent.width, &fl_gfx.swapchain_extent.height);
 
 	// -- prepare swapchain surface format
-	uint32_t           const   surface_formats_enum = surface_formats_enums[physical_device_index];
-	VkSurfaceFormatKHR const * surface_formats      = surface_formats_set[physical_device_index];
-	VkSurfaceFormatKHR         surface_format       = {
+	uint32_t           const   surface_formats_count = surface_formats_counts[physical_device_index];
+	VkSurfaceFormatKHR const * surface_formats       = surface_formats_set[physical_device_index];
+	VkSurfaceFormatKHR         surface_format        = {
 		.format     = VK_FORMAT_MAX_ENUM,
 		.colorSpace = VK_COLOR_SPACE_MAX_ENUM_KHR,
 	};
-	for (uint32_t i = 0; i < surface_formats_enum && surface_format.format == VK_FORMAT_MAX_ENUM; i++)
+	for (uint32_t i = 0; i < surface_formats_count && surface_format.format == VK_FORMAT_MAX_ENUM; i++)
 		if (surface_formats[i].format == VK_FORMAT_R8G8B8A8_UNORM)
 			surface_format = surface_formats[i];
-	for (uint32_t i = 0; i < surface_formats_enum && surface_format.format == VK_FORMAT_MAX_ENUM; i++)
+	for (uint32_t i = 0; i < surface_formats_count && surface_format.format == VK_FORMAT_MAX_ENUM; i++)
 		if (surface_formats[i].format == VK_FORMAT_B8G8R8A8_UNORM)
 			surface_format = surface_formats[i];
 	if (surface_format.format == VK_FORMAT_MAX_ENUM)
@@ -759,10 +769,10 @@ void gfx_init(void) {
 	fl_gfx.surface_format = surface_format.format;
 
 	// -- prepare swapchain present mode
-	uint32_t         const   present_modes_enum = present_modes_enums[physical_device_index];
-	VkPresentModeKHR const * present_modes      = present_modes_set[physical_device_index];
-	VkPresentModeKHR         present_mode       = VK_PRESENT_MODE_MAX_ENUM_KHR;
-	for (uint32_t i = 0; i < present_modes_enum && present_mode == VK_PRESENT_MODE_MAX_ENUM_KHR; i++)
+	uint32_t         const   present_modes_count = present_modes_counts[physical_device_index];
+	VkPresentModeKHR const * present_modes       = present_modes_set[physical_device_index];
+	VkPresentModeKHR         present_mode        = VK_PRESENT_MODE_MAX_ENUM_KHR;
+	for (uint32_t i = 0; i < present_modes_count && present_mode == VK_PRESENT_MODE_MAX_ENUM_KHR; i++)
 		if (present_modes[i] == VK_PRESENT_MODE_MAILBOX_KHR)
 			present_mode = present_modes[i];
 	if (present_mode == VK_PRESENT_MODE_MAX_ENUM_KHR)
@@ -1047,6 +1057,8 @@ void gfx_init(void) {
 		&fl_gfx.allocator,
 		&fl_gfx.in_flight_fence
 	);
+
+	arena_set_position(scratch, scratch_position);
 }
 
 void gfx_free(void) {
