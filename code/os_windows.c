@@ -665,6 +665,10 @@ void os_surface_get_size(u32 * width, u32 * height) {
 #include <vulkan/vulkan.h>
 #include <vulkan/vulkan_win32.h>
 
+void os_vulkan_push_extensions(uint32_t * counter, char const ** buffer) {
+	buffer[(*counter)++] = VK_KHR_WIN32_SURFACE_EXTENSION_NAME;
+}
+
 void * os_vulkan_create_surface(void * instance, void * allocator) {
 	// @note vulkan expects a 64 bit architecture at least
 	AssertStatic(sizeof(size_t) >= sizeof(uint64_t));
@@ -788,7 +792,9 @@ struct OS_Thread {
 AttrFileLocal()
 DWORD os_thread_entry_point(LPVOID data) {
 	struct OS_Thread const * thread = data;
+	thread_ctx_init();
 	thread->info.entry_point();
+	thread_ctx_free();
 	return 0;
 }
 
