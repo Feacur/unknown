@@ -867,10 +867,133 @@ mat4 const mat4_i = (mat4){
 };
 
 // ---- ---- ---- ----
+// memory
+// ---- ---- ---- ----
+
+struct Arena {
+	// @note this structure doubles as the header
+	struct Arena_IInfo info;
+	size_t reserved;
+	size_t commited;
+	size_t offset;
+	// chain
+	u64 base;
+	struct Arena * prev;
+	struct Arena * curr;
+	// @todo pad and protect the boundary
+};
+
+struct Arena * arena_init(struct Arena_IInfo info) {
+	Assert(g_os_info.page_size > 0, "[base] call `os_init` first\n");
+	size_t const maximum = SIZE_MAX - (sizeof(struct Arena) + g_os_info.page_size - 1);
+
+	Assert(info.reserve <= maximum, "[base] trying to reserve too much\n");
+	Assert(info.commit <= info.reserve, "[base] trying to commit too much\n");
+
+	size_t const reserve = align_size(sizeof(struct Arena) + info.reserve, g_os_info.page_size);
+	size_t const commit = align_size(sizeof(struct Arena) + info.commit, g_os_info.page_size);
+	struct Arena * ret = os_memory_reserve(reserve);
+	if (ret == NULL) os_exit(1);
+	os_memory_commit(ret, commit);
+	*ret = (struct Arena){
+		.info = info,
+		.reserved = reserve,
+		.commited = commit,
+		.offset = sizeof(struct Arena),
+		//
+		.curr = ret,
+	};
+	return ret;
+}
+
+void arena_free(struct Arena * arena) {
+	struct Arena * curr = arena->curr;
+	for (struct Arena * prev = NULL; curr != NULL; curr = prev) {
+		prev = curr->prev;
+		os_memory_release(curr, curr->reserved);
+	}
+}
+
+u64 arena_get_position(struct Arena * arena) {
+	struct Arena const * curr = arena->curr;
+	return curr->base + curr->offset;
+}
+
+void arena_set_position(struct Arena * arena, u64 position) {
+	struct Arena * curr = arena->curr;
+
+	Assert(position <= arena_get_position(arena), "[base] arena position overflow\n");
+	Assert(position >= sizeof(struct Arena), "[base] arena position underflow\n");
+	for (struct Arena * it = NULL; curr->base >= position; curr = it) {
+		it = curr->prev;
+		os_memory_release(curr, curr->reserved);
+	}
+
+	curr->offset = position - curr->base;
+	arena->curr = curr;
+}
+
+void * arena_push(struct Arena * arena, size_t size, size_t align) {
+	Assert(align > 0, "[base] alignment should be positive\n");
+	struct Arena * curr = arena->curr;
+
+	if (curr->offset + size > curr->reserved) {
+		curr = arena_init((struct Arena_IInfo){
+			.reserve = max_size(curr->info.reserve, sizeof(struct Arena) + size),
+			.commit = max_size(curr->info.commit, sizeof(struct Arena) + size),
+		});
+		curr->base = arena_get_position(arena);
+		curr->prev = arena;
+		arena->curr = curr;
+	}
+
+	curr->offset = align_size(curr->offset, align);
+	void * memory = (u8 *)curr + curr->offset;
+
+	curr->offset += size;
+	if (curr->commited < curr->offset) {
+		curr->commited = align_size(curr->offset, g_os_info.page_size);
+		os_memory_commit(curr, curr->commited);
+	}
+
+	return memory;
+}
+
+void arena_pop(struct Arena * arena, size_t size) {
+	Assert(arena_get_position(arena) >= size, "[base] arena pop underflow\n");
+	arena_set_position(arena, arena_get_position(arena) - size);
+}
+
+// ---- ---- ---- ----
+// thread context
+// ---- ---- ---- ----
+
+AttrFileLocal() AttrThreadLocal()
+struct Thread_Ctx {
+	struct Arena * scratch;
+} ftl_thread_ctx;
+
+void thread_ctx_init(void) {
+	ftl_thread_ctx.scratch = arena_init((struct Arena_IInfo){
+		.reserve = MB(64),
+		.commit = KB(64),
+	});
+}
+
+void thread_ctx_free(void) {
+	arena_free(ftl_thread_ctx.scratch);
+	mem_zero(&ftl_thread_ctx, sizeof(ftl_thread_ctx));
+}
+
+struct Arena * thread_ctx_get_scratch(void) {
+	return ftl_thread_ctx.scratch;
+}
+
+// ---- ---- ---- ----
 // file utilities
 // ---- ---- ---- ----
 
-struct Array_U8 base_file_read(char const * name) {
+struct Array_U8 base_file_read(struct Arena * arena, char const * name) {
 	struct Array_U8 ret = {0};
 	struct OS_File * file = os_file_init((struct OS_File_IInfo){
 		.name = name,
@@ -879,7 +1002,7 @@ struct Array_U8 base_file_read(char const * name) {
 		u64 const required = os_file_get_size(file);
 		ret.capacity = min_u64(required + 1, ~ret.capacity);
 		AssertF(required <= ret.capacity, "file \"%s\" is too large %llu / %zu\n", name, required, ret.capacity);
-		ret.buffer = os_memory_heap(NULL, ret.capacity);
+		ret.buffer = ArenaPushArray(arena, u8, ret.capacity);
 		ret.count = os_file_read(file, 0, ret.capacity, ret.buffer);
 		if (ret.count < ret.capacity) ret.buffer[ret.count] = 0;
 		os_file_free(file);

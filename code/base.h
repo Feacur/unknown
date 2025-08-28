@@ -8,6 +8,12 @@
 #include "_project.h" // IWYU pragma: export
 
 // ---- ---- ---- ----
+// forward
+// ---- ---- ---- ----
+
+struct Arena;
+
+// ---- ---- ---- ----
 // meta
 // ---- ---- ---- ----
 
@@ -464,12 +470,6 @@ uvec4 uvec4_muls(uvec4 l, u32 r);
 uvec4 uvec4_divs(uvec4 l, u32 r);
 
 // ---- ---- ---- ----
-// file utilities
-// ---- ---- ---- ----
-
-struct Array_U8 base_file_read(char const * name);
-
-// ---- ---- ---- ----
 // macros
 // ---- ---- ---- ----
 
@@ -613,6 +613,41 @@ AttrExternal() mat2 const mat2_i;
 AttrExternal() mat3 const mat3_i;
 
 AttrExternal() mat4 const mat4_i;
+
+// ---- ---- ---- ----
+// memory
+// ---- ---- ---- ----
+
+struct Arena_IInfo {
+	size_t reserve;
+	size_t commit;
+};
+
+struct Arena * arena_init(struct Arena_IInfo info);
+void arena_free(struct Arena * arena);
+
+u64 arena_get_position(struct Arena * arena);
+void arena_set_position(struct Arena * arena, u64 position);
+
+void * arena_push(struct Arena * arena, size_t size, size_t align);
+void arena_pop(struct Arena * arena, size_t size);
+
+#define ArenaPushArray(arena, type, count) (type *)arena_push((arena), sizeof(type) * (count), AlignOf(type))
+
+// ---- ---- ---- ----
+// thread context
+// ---- ---- ---- ----
+
+void thread_ctx_init(void);
+void thread_ctx_free(void);
+
+struct Arena * thread_ctx_get_scratch(void);
+
+// ---- ---- ---- ----
+// file utilities
+// ---- ---- ---- ----
+
+struct Array_U8 base_file_read(struct Arena * arena, char const * name);
 
 // ---- ---- ---- ----
 // formatting
