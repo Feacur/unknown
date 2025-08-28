@@ -287,12 +287,6 @@ s32   vec2i_crs(vec2i l, vec2i r);
 vec3i vec3i_crs(vec3i l, vec3i r);
 
 // ---- ---- ---- ----
-// file utilities
-// ---- ---- ---- ----
-
-struct Array_U8 base_file_read(char const * name);
-
-// ---- ---- ---- ----
 // macros
 // ---- ---- ---- ----
 
@@ -387,6 +381,42 @@ AttrExternal() const bits64 BITS_F64_SNAN;
 #define F64_INF  BITS_F64_INF.as_f
 #define F64_QNAN BITS_F64_QNAN.as_f
 #define F64_SNAN BITS_F64_SNAN.as_f
+
+// ---- ---- ---- ----
+// memory
+// ---- ---- ---- ----
+
+struct Arena;
+struct Arena_IInfo {
+	size_t reserve;
+	size_t commit;
+};
+
+struct Arena * arena_init(struct Arena_IInfo info);
+void arena_free(struct Arena * arena);
+
+u64 arena_get_position(struct Arena * arena);
+void arena_set_position(struct Arena * arena, u64 position);
+
+void * arena_push(struct Arena * arena, size_t size, size_t align);
+void arena_pop(struct Arena * arena, size_t size);
+
+#define ArenaPushArray(arena, type, count) (type *)arena_push((arena), sizeof(type) * (count), AlignOf(type))
+
+// ---- ---- ---- ----
+// thread context
+// ---- ---- ---- ----
+
+void thread_ctx_init(void);
+void thread_ctx_free(void);
+
+struct Arena * thread_ctx_get_scratch(void);
+
+// ---- ---- ---- ----
+// file utilities
+// ---- ---- ---- ----
+
+struct Array_U8 base_file_read(struct Arena * arena, char const * name);
 
 // ---- ---- ---- ----
 // formatting
