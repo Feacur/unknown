@@ -32,7 +32,7 @@ bool os_exit(int code);
 void os_surface_get_size(u32 * width, u32 * height);
 
 void os_vulkan_push_extensions(u32 * counter, char const ** buffer);
-void * os_vulkan_create_surface(void * instance, void * allocator);
+void * os_vulkan_create_surface(void * instance, void const * allocator);
 
 // ---- ---- ---- ----
 // file

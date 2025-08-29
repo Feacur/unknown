@@ -248,7 +248,6 @@ void gfx_memory_free(
 
 AttrFileLocal()
 struct GFX {
-	VkAllocationCallbacks allocator;
 	// instance
 	VkInstance instance;
 	VkDebugUtilsMessengerEXT debug_utils_messenger;
@@ -282,6 +281,18 @@ struct GFX {
 } fl_gfx;
 
 AttrFileLocal()
+VkAllocationCallbacks const fl_gfx_allocator = (VkAllocationCallbacks){
+	.pUserData = &fl_gfx,
+	.pfnAllocation   = gfx_memory_allocate,
+	.pfnReallocation = gfx_memory_reallocate,
+	.pfnFree         = gfx_memory_free,
+	#if GFX_ENABLE_DEBUG
+	.pfnInternalAllocation = gfx_debug_on_internal_allocation,
+	.pfnInternalFree       = gfx_debug_on_internal_free,
+	#endif
+};
+
+AttrFileLocal()
 void * gfx_get_instance_proc(char const * name) {
 	void * ret = (void *)vkGetInstanceProcAddr(fl_gfx.instance, name);
 	AssertF(ret, "[gfx] `vkGetInstanceProcAddr(0x%p, \"%s\")` failed\n", (void *)fl_gfx.instance, name);
@@ -302,7 +313,7 @@ VkShaderModule gfx_create_shader_module(char const * name) {
 			.codeSize = source.count,
 			.pCode = (void *)source.buffer,
 		},
-		&fl_gfx.allocator,
+		&fl_gfx_allocator,
 		&ret
 	);
 
@@ -313,17 +324,6 @@ VkShaderModule gfx_create_shader_module(char const * name) {
 void gfx_init(void) {
 	struct Arena * scratch = thread_ctx_get_scratch();
 	u64 const scratch_position = arena_get_position(scratch);
-
-	fl_gfx.allocator = (VkAllocationCallbacks){
-		// .pUserData = fl_gfx.arena,
-		.pfnAllocation   = gfx_memory_allocate,
-		.pfnReallocation = gfx_memory_reallocate,
-		.pfnFree         = gfx_memory_free,
-		#if GFX_ENABLE_DEBUG
-		.pfnInternalAllocation = gfx_debug_on_internal_allocation,
-		.pfnInternalFree       = gfx_debug_on_internal_free,
-		#endif
-	};
 
 	// -- collect instance version
 	uint32_t api_version;
@@ -460,7 +460,7 @@ void gfx_init(void) {
 			.pNext = debug_utils_messenger_create_info,
 			#endif
 		},
-		&fl_gfx.allocator,
+		&fl_gfx_allocator,
 		&fl_gfx.instance
 	);
 
@@ -470,13 +470,13 @@ void gfx_init(void) {
 	vkCreateDebugUtilsMessengerEXT(
 		fl_gfx.instance,
 		debug_utils_messenger_create_info,
-		&fl_gfx.allocator,
+		&fl_gfx_allocator,
 		&fl_gfx.debug_utils_messenger
 	);
 	#endif
 
 	// -- init an OS-specific presentation surface
-	fl_gfx.surface = (VkSurfaceKHR)os_vulkan_create_surface(fl_gfx.instance, &fl_gfx.allocator);
+	fl_gfx.surface = (VkSurfaceKHR)os_vulkan_create_surface(fl_gfx.instance, &fl_gfx_allocator);
 
 	// -- collect physical device handles
 	uint32_t physical_devices_count;
@@ -740,7 +740,7 @@ void gfx_init(void) {
 			.enabledExtensionCount = ArrayCount(requested_device_extensions),
 			.ppEnabledExtensionNames = requested_device_extensions,
 		},
-		&fl_gfx.allocator,
+		&fl_gfx_allocator,
 		&fl_gfx.device
 	);
 
@@ -809,7 +809,7 @@ void gfx_init(void) {
 			.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR,
 			.clipped = VK_TRUE,
 		},
-		&fl_gfx.allocator,
+		&fl_gfx_allocator,
 		&fl_gfx.swapchain
 	);
 
@@ -835,7 +835,7 @@ void gfx_init(void) {
 					.layerCount = 1,
 				},
 			},
-			&fl_gfx.allocator,
+			&fl_gfx_allocator,
 			fl_gfx.swapchain_image_views + i
 		);
 
@@ -845,7 +845,7 @@ void gfx_init(void) {
 		&(VkPipelineLayoutCreateInfo){
 			.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
 		},
-		&fl_gfx.allocator,
+		&fl_gfx_allocator,
 		&fl_gfx.pipeline_layout
 	);
 
@@ -893,7 +893,7 @@ void gfx_init(void) {
 				.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
 			},
 		},
-		&fl_gfx.allocator,
+		&fl_gfx_allocator,
 		&fl_gfx.render_pass
 	);
 
@@ -984,12 +984,12 @@ void gfx_init(void) {
 				.pDynamicStates = dynamic_states,
 			},
 		},
-		&fl_gfx.allocator,
+		&fl_gfx_allocator,
 		&fl_gfx.graphics_pipeline
 	);
 
 	for (uint32_t i = 0, count = ArrayCount(shader_stages); i < count; i++)
-		vkDestroyShaderModule(fl_gfx.device, shader_stages[i].module, &fl_gfx.allocator);
+		vkDestroyShaderModule(fl_gfx.device, shader_stages[i].module, &fl_gfx_allocator);
 
 	// --create framebuffers
 	fl_gfx.framebuffers = os_memory_heap(NULL, sizeof(VkFramebuffer) * fl_gfx.swapchain_images_count);
@@ -1006,7 +1006,7 @@ void gfx_init(void) {
 				.attachmentCount = 1,
 				.pAttachments = fl_gfx.swapchain_image_views + i,
 			},
-			&fl_gfx.allocator,
+			&fl_gfx_allocator,
 			fl_gfx.framebuffers + i
 		);
 	}
@@ -1019,7 +1019,7 @@ void gfx_init(void) {
 			.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT,
 			.queueFamilyIndex = queue_family_graphics_index,
 		},
-		&fl_gfx.allocator,
+		&fl_gfx_allocator,
 		&fl_gfx.command_pool
 	);
 
@@ -1041,7 +1041,7 @@ void gfx_init(void) {
 			&(VkSemaphoreCreateInfo){
 				.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO,
 			},
-			&fl_gfx.allocator,
+			&fl_gfx_allocator,
 			fl_gfx.image_available_semaphores + i
 		);
 	for (uint32_t i = 0; i < GFX_FRAMES_IN_FLIGHT; i++)
@@ -1050,7 +1050,7 @@ void gfx_init(void) {
 			&(VkSemaphoreCreateInfo){
 				.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO,
 			},
-			&fl_gfx.allocator,
+			&fl_gfx_allocator,
 			fl_gfx.render_finished_semaphores + i
 		);
 	for (uint32_t i = 0; i < GFX_FRAMES_IN_FLIGHT; i++)
@@ -1060,11 +1060,27 @@ void gfx_init(void) {
 				.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,
 				.flags = VK_FENCE_CREATE_SIGNALED_BIT,
 			},
-			&fl_gfx.allocator,
+			&fl_gfx_allocator,
 			fl_gfx.in_flight_fences + i
 		);
 
 	arena_set_position(scratch, scratch_position);
+}
+
+AttrFileLocal()
+void gfx_free_swapchain(void) {
+	// -- destroy framebuffers
+	for (uint32_t i = 0; i < fl_gfx.swapchain_images_count; i++)
+		vkDestroyFramebuffer(fl_gfx.device, fl_gfx.framebuffers[i], &fl_gfx_allocator);
+	os_memory_heap(fl_gfx.framebuffers, 0);
+
+	// -- destroy the swapchain images array
+	for (uint32_t i = 0; i < fl_gfx.swapchain_images_count; i++)
+		vkDestroyImageView(fl_gfx.device, fl_gfx.swapchain_image_views[i], &fl_gfx_allocator);
+	os_memory_heap(fl_gfx.swapchain_image_views, 0);
+
+	// -- destroy the swapchain
+	vkDestroySwapchainKHR(fl_gfx.device, fl_gfx.swapchain, &fl_gfx_allocator);
 }
 
 void gfx_free(void) {
@@ -1073,42 +1089,29 @@ void gfx_free(void) {
 
 	// -- destroy syncronzation
 	for (uint32_t i = 0; i < GFX_FRAMES_IN_FLIGHT; i++)
-		vkDestroySemaphore(fl_gfx.device, fl_gfx.image_available_semaphores[i], &fl_gfx.allocator);
+		vkDestroySemaphore(fl_gfx.device, fl_gfx.image_available_semaphores[i], &fl_gfx_allocator);
 	for (uint32_t i = 0; i < GFX_FRAMES_IN_FLIGHT; i++)
-		vkDestroySemaphore(fl_gfx.device, fl_gfx.render_finished_semaphores[i], &fl_gfx.allocator);
+		vkDestroySemaphore(fl_gfx.device, fl_gfx.render_finished_semaphores[i], &fl_gfx_allocator);
 	for (uint32_t i = 0; i < GFX_FRAMES_IN_FLIGHT; i++)
-		vkDestroyFence(fl_gfx.device, fl_gfx.in_flight_fences[i], &fl_gfx.allocator);
+		vkDestroyFence(fl_gfx.device, fl_gfx.in_flight_fences[i], &fl_gfx_allocator);
 
 	// -- destroy command pool
-	vkDestroyCommandPool(fl_gfx.device, fl_gfx.command_pool, &fl_gfx.allocator);
+	vkDestroyCommandPool(fl_gfx.device, fl_gfx.command_pool, &fl_gfx_allocator);
 
-	// -- destroy framebuffers
-	for (uint32_t i = 0; i < fl_gfx.swapchain_images_count; i++)
-		vkDestroyFramebuffer(fl_gfx.device, fl_gfx.framebuffers[i], &fl_gfx.allocator);
-	os_memory_heap(fl_gfx.framebuffers, 0);
+	gfx_free_swapchain();
 
 	// -- destroy pipeline
-	vkDestroyPipeline(fl_gfx.device, fl_gfx.graphics_pipeline, &fl_gfx.allocator);
+	vkDestroyPipeline(fl_gfx.device, fl_gfx.graphics_pipeline, &fl_gfx_allocator);
+	vkDestroyPipelineLayout(fl_gfx.device, fl_gfx.pipeline_layout, &fl_gfx_allocator);
 
 	// -- destroy render pass
-	vkDestroyRenderPass(fl_gfx.device, fl_gfx.render_pass, &fl_gfx.allocator);
-
-	// -- destroy pipeline layout
-	vkDestroyPipelineLayout(fl_gfx.device, fl_gfx.pipeline_layout, &fl_gfx.allocator);
-
-	// -- destroy the swapchain images array
-	for (uint32_t i = 0; i < fl_gfx.swapchain_images_count; i++)
-		vkDestroyImageView(fl_gfx.device, fl_gfx.swapchain_image_views[i], &fl_gfx.allocator);
-	os_memory_heap(fl_gfx.swapchain_image_views, 0);
+	vkDestroyRenderPass(fl_gfx.device, fl_gfx.render_pass, &fl_gfx_allocator);
 
 	// -- destroy the swapchain images array
 	os_memory_heap(fl_gfx.swapchain_images, 0);
 
-	// -- destroy the swapchain
-	vkDestroySwapchainKHR(fl_gfx.device, fl_gfx.swapchain, &fl_gfx.allocator);
-
 	// -- destroy the logical device
-	vkDestroyDevice(fl_gfx.device, &fl_gfx.allocator);
+	vkDestroyDevice(fl_gfx.device, &fl_gfx_allocator);
 
 	// -- deinit the debug messenger
 	#if GFX_ENABLE_DEBUG
@@ -1116,15 +1119,15 @@ void gfx_free(void) {
 	vkDestroyDebugUtilsMessengerEXT(
 		fl_gfx.instance,
 		fl_gfx.debug_utils_messenger,
-		&fl_gfx.allocator
+		&fl_gfx_allocator
 	);
 	#endif
 
 	// -- destroy the surface
-	vkDestroySurfaceKHR(fl_gfx.instance, fl_gfx.surface, &fl_gfx.allocator);
+	vkDestroySurfaceKHR(fl_gfx.instance, fl_gfx.surface, &fl_gfx_allocator);
 
 	// destroy the instance
-	vkDestroyInstance(fl_gfx.instance, &fl_gfx.allocator);
+	vkDestroyInstance(fl_gfx.instance, &fl_gfx_allocator);
 
 	// -- zero the memory
 	mem_zero(&fl_gfx, sizeof(fl_gfx));
