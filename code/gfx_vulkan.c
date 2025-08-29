@@ -16,11 +16,13 @@ matrices are colum-major style
   result = matrix x vector
 */
 
+#define GFX_FRAMES_IN_FLIGHT 2
 #define GFX_DEFINE_PROC(name) PFN_ ## name name = (PFN_ ## name)gfx_get_instance_proc(#name)
 #define GFX_ENABLE_DEBUG (BUILD_DEBUG == BUILD_DEBUG_ENABLE)
 
 // @note vulkan expects a 64 bit architecture at least
 AssertStatic(sizeof(size_t) >= sizeof(uint64_t));
+AssertStatic(GFX_FRAMES_IN_FLIGHT >= 1);
 
 // ---- ---- ---- ----
 // stringifiers
@@ -258,15 +260,16 @@ struct GFX {
 	VkDevice device;
 	VkQueue device_graphics_queue;
 	VkQueue device_surface_queue;
-	// syncronization
-	VkSemaphore image_available_semaphore;
-	VkSemaphore render_finished_semaphore;
-	VkFence     in_flight_fence;
+	// synchronization
+	VkSemaphore image_available_semaphores[GFX_FRAMES_IN_FLIGHT];
+	VkSemaphore render_finished_semaphores[GFX_FRAMES_IN_FLIGHT];
+	VkFence     in_flight_fences[GFX_FRAMES_IN_FLIGHT];
 	// command pool
 	VkCommandPool   command_pool;
-	VkCommandBuffer command_buffer;
+	VkCommandBuffer command_buffers[GFX_FRAMES_IN_FLIGHT];
 	// render pass and swapchain
 	VkRenderPass render_pass;
+	uint32_t         frame;
 	VkExtent2D       swapchain_extent;
 	VkSwapchainKHR   swapchain;
 	uint32_t         swapchain_images_count;
@@ -1026,37 +1029,40 @@ void gfx_init(void) {
 			.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
 			.commandPool = fl_gfx.command_pool,
 			.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY,
-			.commandBufferCount = 1,
+			.commandBufferCount = GFX_FRAMES_IN_FLIGHT,
 		},
-		&fl_gfx.command_buffer
+		fl_gfx.command_buffers
 	);
 
 	// -- create synchronization
-	vkCreateSemaphore(
-		fl_gfx.device,
-		&(VkSemaphoreCreateInfo){
-			.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO,
-		},
-		&fl_gfx.allocator,
-		&fl_gfx.image_available_semaphore
-	);
-	vkCreateSemaphore(
-		fl_gfx.device,
-		&(VkSemaphoreCreateInfo){
-			.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO,
-		},
-		&fl_gfx.allocator,
-		&fl_gfx.render_finished_semaphore
-	);
-	vkCreateFence(
-		fl_gfx.device,
-		&(VkFenceCreateInfo){
-			.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,
-			.flags = VK_FENCE_CREATE_SIGNALED_BIT,
-		},
-		&fl_gfx.allocator,
-		&fl_gfx.in_flight_fence
-	);
+	for (uint32_t i = 0; i < GFX_FRAMES_IN_FLIGHT; i++)
+		vkCreateSemaphore(
+			fl_gfx.device,
+			&(VkSemaphoreCreateInfo){
+				.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO,
+			},
+			&fl_gfx.allocator,
+			fl_gfx.image_available_semaphores + i
+		);
+	for (uint32_t i = 0; i < GFX_FRAMES_IN_FLIGHT; i++)
+		vkCreateSemaphore(
+			fl_gfx.device,
+			&(VkSemaphoreCreateInfo){
+				.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO,
+			},
+			&fl_gfx.allocator,
+			fl_gfx.render_finished_semaphores + i
+		);
+	for (uint32_t i = 0; i < GFX_FRAMES_IN_FLIGHT; i++)
+		vkCreateFence(
+			fl_gfx.device,
+			&(VkFenceCreateInfo){
+				.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,
+				.flags = VK_FENCE_CREATE_SIGNALED_BIT,
+			},
+			&fl_gfx.allocator,
+			fl_gfx.in_flight_fences + i
+		);
 
 	arena_set_position(scratch, scratch_position);
 }
@@ -1066,9 +1072,12 @@ void gfx_free(void) {
 	vkDeviceWaitIdle(fl_gfx.device);
 
 	// -- destroy syncronzation
-	vkDestroySemaphore(fl_gfx.device, fl_gfx.image_available_semaphore, &fl_gfx.allocator);
-	vkDestroySemaphore(fl_gfx.device, fl_gfx.render_finished_semaphore, &fl_gfx.allocator);
-	vkDestroyFence(fl_gfx.device, fl_gfx.in_flight_fence, &fl_gfx.allocator);
+	for (uint32_t i = 0; i < GFX_FRAMES_IN_FLIGHT; i++)
+		vkDestroySemaphore(fl_gfx.device, fl_gfx.image_available_semaphores[i], &fl_gfx.allocator);
+	for (uint32_t i = 0; i < GFX_FRAMES_IN_FLIGHT; i++)
+		vkDestroySemaphore(fl_gfx.device, fl_gfx.render_finished_semaphores[i], &fl_gfx.allocator);
+	for (uint32_t i = 0; i < GFX_FRAMES_IN_FLIGHT; i++)
+		vkDestroyFence(fl_gfx.device, fl_gfx.in_flight_fences[i], &fl_gfx.allocator);
 
 	// -- destroy command pool
 	vkDestroyCommandPool(fl_gfx.device, fl_gfx.command_pool, &fl_gfx.allocator);
@@ -1122,15 +1131,21 @@ void gfx_free(void) {
 }
 
 void gfx_tick(void) {
+	uint32_t        const frame                     = fl_gfx.frame;
+	VkCommandBuffer const command_buffer            = fl_gfx.command_buffers[frame];
+	VkSemaphore     const image_available_semaphore = fl_gfx.image_available_semaphores[frame];
+	VkSemaphore     const render_finished_semaphore = fl_gfx.render_finished_semaphores[frame];
+	VkFence         const in_flight_fence           = fl_gfx.in_flight_fences[frame];
+
 	// -- wait for the previous frame
-	vkWaitForFences(fl_gfx.device, 1, &fl_gfx.in_flight_fence, VK_TRUE, UINT64_MAX);
+	vkWaitForFences(fl_gfx.device, 1, &in_flight_fence, VK_TRUE, UINT64_MAX);
 
 	// -- prepare for the next frame
 	uint32_t image_index;
 	VkResult const aquire_next_image_result =
 	vkAcquireNextImageKHR(
 		fl_gfx.device, fl_gfx.swapchain,
-		UINT64_MAX, fl_gfx.image_available_semaphore, VK_NULL_HANDLE, &image_index
+		UINT64_MAX, image_available_semaphore, VK_NULL_HANDLE, &image_index
 	);
 	switch (aquire_next_image_result) {
 		// success, continue rendering
@@ -1144,15 +1159,15 @@ void gfx_tick(void) {
 		default: return;
 	}
 
-	vkResetFences(fl_gfx.device, 1, &fl_gfx.in_flight_fence);
-	vkResetCommandBuffer(fl_gfx.command_buffer, 0);
+	vkResetFences(fl_gfx.device, 1, &in_flight_fence);
+	vkResetCommandBuffer(command_buffer, 0);
 
 	// -- draw
-	vkBeginCommandBuffer(fl_gfx.command_buffer, &(VkCommandBufferBeginInfo){
+	vkBeginCommandBuffer(command_buffer, &(VkCommandBufferBeginInfo){
 		.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
 	});
 
-	vkCmdBeginRenderPass(fl_gfx.command_buffer, &(VkRenderPassBeginInfo){
+	vkCmdBeginRenderPass(command_buffer, &(VkRenderPassBeginInfo){
 		.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
 		.renderPass = fl_gfx.render_pass,
 		.framebuffer = fl_gfx.framebuffers[image_index],
@@ -1166,56 +1181,50 @@ void gfx_tick(void) {
 		},
 	}, VK_SUBPASS_CONTENTS_INLINE);
 
-	vkCmdBindPipeline(fl_gfx.command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, fl_gfx.graphics_pipeline);
-	vkCmdSetViewport(fl_gfx.command_buffer, 0, 1, &(VkViewport){
-		// offset, Y positive up
+	vkCmdBindPipeline(command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, fl_gfx.graphics_pipeline);
+	vkCmdSetViewport(command_buffer, 0, 1, &(VkViewport){
+		// offset, y-up
 		.x = (float)0,
 		.y = (float)fl_gfx.swapchain_extent.height,
-		// scale, Y positive up
+		// scale, y-up
 		.width = (float)fl_gfx.swapchain_extent.width,
 		.height = -(float)fl_gfx.swapchain_extent.height,
 		// depth
 		.minDepth = 0,
 		.maxDepth = 1,
 	});
-	vkCmdSetScissor(fl_gfx.command_buffer, 0, 1, &(VkRect2D){
+	vkCmdSetScissor(command_buffer, 0, 1, &(VkRect2D){
 		.extent = fl_gfx.swapchain_extent,
 	});
-	vkCmdDraw(fl_gfx.command_buffer, 3, 1, 0, 0);
+	vkCmdDraw(command_buffer, 3, 1, 0, 0);
 
-	vkCmdEndRenderPass(fl_gfx.command_buffer);
-	vkEndCommandBuffer(fl_gfx.command_buffer);
+	vkCmdEndRenderPass(command_buffer);
+	vkEndCommandBuffer(command_buffer);
 
 	// -- submit
-	VkSemaphore const submit_wait_semaphores[] = {
-		fl_gfx.image_available_semaphore,
-	};
-	VkSemaphore const submit_signal_semaphores[] = {
-		fl_gfx.render_finished_semaphore,
-	};
 	vkQueueSubmit(fl_gfx.device_graphics_queue, 1, &(VkSubmitInfo){
 		.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
 		// wait semaphores
-		.waitSemaphoreCount = ArrayCount(submit_wait_semaphores),
-		.pWaitSemaphores = submit_wait_semaphores,
+		.waitSemaphoreCount = 1,
+		.pWaitSemaphores = &image_available_semaphore,
 		.pWaitDstStageMask = (VkPipelineStageFlags[]){
 			VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
 		},
 		// command buffers
 		.commandBufferCount = 1,
-		.pCommandBuffers = &fl_gfx.command_buffer,
+		.pCommandBuffers = &command_buffer,
 		// signal semaphores
-		.signalSemaphoreCount = ArrayCount(submit_signal_semaphores),
-		.pSignalSemaphores = submit_signal_semaphores,
-	}, fl_gfx.in_flight_fence);
+		.signalSemaphoreCount = 1,
+		.pSignalSemaphores = &render_finished_semaphore,
+	}, in_flight_fence);
 
 	// -- present
 	VkResult const queue_present_result =
 	vkQueuePresentKHR(fl_gfx.device_surface_queue, &(VkPresentInfoKHR){
 		.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,
 		// wait semaphores
-		.waitSemaphoreCount = ArrayCount(submit_signal_semaphores),
-		.pWaitSemaphores = submit_signal_semaphores,
+		.waitSemaphoreCount = 1,
+		.pWaitSemaphores = &render_finished_semaphore,
 		// swap chains
 		.swapchainCount = 1,
 		.pSwapchains = &fl_gfx.swapchain,
@@ -1227,6 +1236,8 @@ void gfx_tick(void) {
 		AttrFallthrough();
 		default: break;
 	}
+
+	fl_gfx.frame = (fl_gfx.frame + 1) % GFX_FRAMES_IN_FLIGHT;
 }
 
 #undef GFX_DEFINE_PROC
