@@ -669,7 +669,7 @@ void os_vulkan_push_extensions(uint32_t * counter, char const ** buffer) {
 	buffer[(*counter)++] = VK_KHR_WIN32_SURFACE_EXTENSION_NAME;
 }
 
-void * os_vulkan_create_surface(void * instance, void * allocator) {
+void * os_vulkan_create_surface(void * instance, void const * allocator) {
 	// @note vulkan expects a 64 bit architecture at least
 	AssertStatic(sizeof(size_t) >= sizeof(uint64_t));
 
