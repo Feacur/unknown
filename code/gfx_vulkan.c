@@ -309,6 +309,7 @@ struct GFX {
 		VkImage        * images;
 		VkImageView    * image_views;
 		VkFramebuffer  * framebuffers;
+		bool             out_of_date_or_suboptimal;
 	} swapchain;
 	// pipeline / USER DATA
 	struct GFX_Pipeline {
@@ -977,6 +978,16 @@ void gfx_swapchain_free(struct GFX_Swapchain swapchain) {
 	os_memory_heap(swapchain.images, 0);
 }
 
+AttrFileLocal()
+void gfx_swapchain_recreate(void) {
+	struct GFX_Swapchain const previous = fl_gfx.swapchain;
+	fl_gfx.swapchain = (struct GFX_Swapchain){0};
+	gfx_swapchain_init(previous.handle);
+	// @todo don't halt the main thread
+	vkDeviceWaitIdle(fl_gfx.device.handle);
+	gfx_swapchain_free(previous);
+}
+
 // ---- ---- ---- ----
 // pipeline / USER DATA
 // ---- ---- ---- ----
@@ -1233,6 +1244,9 @@ void gfx_free(void) {
 }
 
 void gfx_tick(void) {
+	if (fl_gfx.swapchain.out_of_date_or_suboptimal)
+		gfx_swapchain_recreate();
+
 	if (fl_gfx.swapchain.handle == VK_NULL_HANDLE)
 		return;
 
@@ -1266,6 +1280,7 @@ void gfx_tick(void) {
 
 		// failure, cancel rendering
 		case VK_ERROR_OUT_OF_DATE_KHR:
+			fl_gfx.swapchain.out_of_date_or_suboptimal = true;
 		AttrFallthrough();
 		default: return;
 	}
@@ -1353,11 +1368,16 @@ void gfx_tick(void) {
 	switch (queue_present_result) {
 		case VK_SUBOPTIMAL_KHR:        // success
 		case VK_ERROR_OUT_OF_DATE_KHR: // failure
+			fl_gfx.swapchain.out_of_date_or_suboptimal = true;
 		AttrFallthrough();
 		default: break;
 	}
 
 	fl_gfx.swapchain.frame = (fl_gfx.swapchain.frame + 1) % GFX_VK_FRAMES_IN_FLIGHT;
+}
+
+void gfx_notify_surface_resized(void) {
+	fl_gfx.swapchain.out_of_date_or_suboptimal = true;
 }
 
 #undef GFX_VK_FRAMES_IN_FLIGHT
