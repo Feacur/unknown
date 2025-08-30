@@ -133,6 +133,29 @@ str8 gfx_to_string_queue(VkQueueFlagBits value) {
 }
 
 // ---- ---- ---- ----
+// utilities
+// ---- ---- ---- ----
+
+AttrFileLocal()
+bool gfx_match_sets(
+	uint32_t requested_count, char const * const * requested_set,
+	uint32_t available_count, char const * const * avaliable_set) {
+	bool available = true;
+	for (uint32_t i = 0; i < requested_count; i++) {
+		char const * requested = requested_set[i];
+		for (uint32_t i = 0; i < available_count; i++) {
+			char const * available = avaliable_set[i];
+			if (str_equals(requested, available))
+				goto found;
+		}
+		available = false;
+		DbgPrintF("requested value \"%s\" is not available\n", requested);
+		found:;
+	}
+	return available;
+}
+
+// ---- ---- ---- ----
 // debugging
 // ---- ---- ---- ----
 
@@ -254,11 +277,20 @@ struct GFX {
 	// surface
 	VkSurfaceKHR surface;
 	// device
-	VkPhysicalDevice physical_device;
-	VkFormat surface_format;
-	VkDevice device;
-	VkQueue device_graphics_queue;
-	VkQueue device_surface_queue;
+	struct GFX_Device_Logical {
+		struct GFX_Device_Physical {
+			VkPhysicalDevice handle;
+			uint32_t main_qfamily_index;
+			uint32_t present_qfamily_index;
+			VkSurfaceFormatKHR surface_format;
+			VkPresentModeKHR present_mode;
+		} physical;
+		VkDevice handle;
+		uint32_t qfamilies_count;
+		uint32_t qfamily_indices[2];
+		VkQueue main_queue;
+		VkQueue present_queue;
+	} device;
 	// synchronization
 	VkSemaphore image_available_semaphores[GFX_FRAMES_IN_FLIGHT];
 	VkSemaphore render_finished_semaphores[GFX_FRAMES_IN_FLIGHT];
@@ -268,16 +300,20 @@ struct GFX {
 	VkCommandBuffer command_buffers[GFX_FRAMES_IN_FLIGHT];
 	// render pass and swapchain
 	VkRenderPass render_pass;
-	uint32_t         frame;
-	VkExtent2D       swapchain_extent;
-	VkSwapchainKHR   swapchain;
-	uint32_t         swapchain_images_count;
-	VkImage        * swapchain_images;
-	VkImageView    * swapchain_image_views;
-	VkFramebuffer  * framebuffers;
+	struct GFX_Swapchain {
+		uint32_t         frame;
+		VkExtent2D       extent;
+		VkSwapchainKHR   handle;
+		uint32_t         images_count;
+		VkImage        * images;
+		VkImageView    * image_views;
+		VkFramebuffer  * framebuffers;
+	} swapchain;
 	// pipeline / USER DATA
-	VkPipelineLayout pipeline_layout;
-	VkPipeline graphics_pipeline;
+	struct GFX_Pipeline {
+		VkPipelineLayout layout;
+		VkPipeline       handle;
+	} pipeline;
 } fl_gfx;
 
 AttrFileLocal()
@@ -299,37 +335,22 @@ void * gfx_get_instance_proc(char const * name) {
 	return ret;
 }
 
+// ---- ---- ---- ----
+// instance and surface
+// ---- ---- ---- ----
+
 AttrFileLocal()
-VkShaderModule gfx_create_shader_module(char const * name) {
+void gfx_instance_init(void) {
 	struct Arena * scratch = thread_ctx_get_scratch();
 	u64 const scratch_position = arena_get_position(scratch);
 
-	struct Array_U8 const source = base_file_read(scratch, name);
-	VkShaderModule ret;
-	vkCreateShaderModule(
-		fl_gfx.device,
-		&(VkShaderModuleCreateInfo){
-			.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO,
-			.codeSize = source.count,
-			.pCode = (void *)source.buffer,
-		},
-		&fl_gfx_allocator,
-		&ret
-	);
+	// ---- ---- ---- ----
+	// version
+	// ---- ---- ---- ----
 
-	arena_set_position(scratch, scratch_position);
-	return ret;
-}
-
-void gfx_init(void) {
-	struct Arena * scratch = thread_ctx_get_scratch();
-	u64 const scratch_position = arena_get_position(scratch);
-
-	// -- collect instance version
 	uint32_t api_version;
 	vkEnumerateInstanceVersion(&api_version);
 
-	// -- log instance version
 	{
 		uint32_t const v[4] = {
 			VK_API_VERSION_VARIANT(api_version),
@@ -343,30 +364,34 @@ void gfx_init(void) {
 		fmt_print("\n");
 	}
 
-	// -- collect available instance extensions
-	uint32_t available_instance_extension_properties_count;
-	vkEnumerateInstanceExtensionProperties(NULL, &available_instance_extension_properties_count, NULL);
-	VkExtensionProperties * available_instance_extension_properties = ArenaPushArray(scratch, VkExtensionProperties, available_instance_extension_properties_count);
-	vkEnumerateInstanceExtensionProperties(NULL, &available_instance_extension_properties_count, available_instance_extension_properties);
+	// ---- ---- ---- ----
+	// extensions
+	// ---- ---- ---- ----
 
-	// -- log available instance extensions
-	fmt_print("[gfx] available instance extensions (%u):\n", available_instance_extension_properties_count);
-	for (uint32_t i = 0; i < available_instance_extension_properties_count; i++) {
-		VkExtensionProperties const * it = available_instance_extension_properties + i;
+	uint32_t available_extensions_count;
+	vkEnumerateInstanceExtensionProperties(NULL, &available_extensions_count, NULL);
+	VkExtensionProperties * available_extension_properties = ArenaPushArray(scratch, VkExtensionProperties, available_extensions_count);
+	vkEnumerateInstanceExtensionProperties(NULL, &available_extensions_count, available_extension_properties);
+
+	fmt_print("[gfx] available instance extensions (%u):\n", available_extensions_count);
+	for (uint32_t i = 0; i < available_extensions_count; i++) {
+		VkExtensionProperties const * it = available_extension_properties + i;
 		fmt_print("- %s\n", it->extensionName);
 	}
 	fmt_print("\n");
 
-	// -- collect available instance layers
-	uint32_t available_instance_layer_properties_count;
-	vkEnumerateInstanceLayerProperties(&available_instance_layer_properties_count, NULL);
-	VkLayerProperties * available_instance_layer_properties = ArenaPushArray(scratch, VkLayerProperties, available_instance_layer_properties_count);
-	vkEnumerateInstanceLayerProperties(&available_instance_layer_properties_count, available_instance_layer_properties);
+	// ---- ---- ---- ----
+	// layers
+	// ---- ---- ---- ----
 
-	// -- log available instance layers
-	fmt_print("[gfx] available instance layers (%u):\n", available_instance_layer_properties_count);
-	for (uint32_t i = 0; i < available_instance_layer_properties_count; i++) {
-		VkLayerProperties const * it = available_instance_layer_properties + i;
+	uint32_t available_layers_count;
+	vkEnumerateInstanceLayerProperties(&available_layers_count, NULL);
+	VkLayerProperties * available_layer_properties = ArenaPushArray(scratch, VkLayerProperties, available_layers_count);
+	vkEnumerateInstanceLayerProperties(&available_layers_count, available_layer_properties);
+
+	fmt_print("[gfx] available instance layers (%u):\n", available_layers_count);
+	for (uint32_t i = 0; i < available_layers_count; i++) {
+		VkLayerProperties const * it = available_layer_properties + i;
 
 		uint32_t const v[4] = {
 			VK_API_VERSION_VARIANT(it->specVersion),
@@ -379,45 +404,50 @@ void gfx_init(void) {
 	}
 	fmt_print("\n");
 
-	// --prepare instance extensions
-	uint32_t requested_instance_extensions_count = 0;
-	char const ** const requested_instance_extensions = ArenaPushArray(scratch, char const *, available_instance_extension_properties_count);
-	os_vulkan_push_extensions(&requested_instance_extensions_count, requested_instance_extensions);
-	requested_instance_extensions[requested_instance_extensions_count++] = VK_KHR_SURFACE_EXTENSION_NAME;
+	// ---- ---- ---- ----
+	// form requirements
+	// ---- ---- ---- ----
+
+	uint32_t required_instance_extensions_count = 0;
+	char const ** const required_instance_extensions = ArenaPushArray(scratch, char const *, available_extensions_count);
+	os_vulkan_push_extensions(&required_instance_extensions_count, required_instance_extensions);
+	required_instance_extensions[required_instance_extensions_count++] = VK_KHR_SURFACE_EXTENSION_NAME;
 	#if GFX_ENABLE_DEBUG
-	requested_instance_extensions[requested_instance_extensions_count++] = VK_EXT_DEBUG_UTILS_EXTENSION_NAME;
+	required_instance_extensions[required_instance_extensions_count++] = VK_EXT_DEBUG_UTILS_EXTENSION_NAME;
 	#endif
 
-	for (uint32_t i = 0; i < requested_instance_extensions_count; i++) {
-		char const * requested = requested_instance_extensions[i];
-		for (uint32_t i = 0; i < available_instance_extension_properties_count; i++) {
-			char const * available = available_instance_extension_properties[i].extensionName;
-			if (str_equals(requested, available))
-				goto instance_extension_found;
-		}
-		AssertF(false, "extension \"%s\" is not available\n", requested);
-		instance_extension_found:;
-	}
-
-	// --prepare instance layers
-	char const * const requested_instance_layers[] = {
+	char const * const required_instance_layers[] = {
 		#if GFX_ENABLE_DEBUG
 		"VK_LAYER_KHRONOS_validation",
 		#endif
 	};
 
-	for (uint32_t i = 0; i < ArrayCount(requested_instance_layers); i++) {
-		char const * requested = requested_instance_layers[i];
-		for (uint32_t i = 0; i < available_instance_layer_properties_count; i++) {
-			char const * available = available_instance_layer_properties[i].layerName;
-			if (str_equals(requested, available))
-				goto instance_layer_found;
-		}
-		AssertF(false, "layer \"%s\" is not available\n", requested);
-		instance_layer_found:;
-	}
+	// ---- ---- ---- ----
+	// verify requirements
+	// ---- ---- ---- ----
 
-	// -- prepare debug
+	char const ** available_extensions = ArenaPushArray(scratch, char const *, available_extensions_count);
+	for (uint32_t i = 0; i < available_extensions_count; i++)
+		available_extensions[i] = available_extension_properties[i].extensionName;
+	bool const extensions_match = gfx_match_sets(
+		required_instance_extensions_count, required_instance_extensions,
+		available_extensions_count, available_extensions
+	);
+	Assert(extensions_match, "can't satisfy requested extensions set\n\n");
+
+	char const ** available_layers = ArenaPushArray(scratch, char const *, available_layers_count);
+	for (uint32_t i = 0; i < available_layers_count; i++)
+		available_layers[i] = available_layer_properties[i].layerName;
+	bool const layers_match = gfx_match_sets(
+		ArrayCount(required_instance_layers), required_instance_layers,
+		available_layers_count, available_layers
+	);
+	Assert(layers_match, "can't satisfy requested layers set\n\n");
+
+	// ---- ---- ---- ----
+	// common debug info
+	// ---- ---- ---- ----
+
 	#if GFX_ENABLE_DEBUG
 	VkDebugUtilsMessengerCreateInfoEXT const * debug_utils_messenger_create_info = &(VkDebugUtilsMessengerCreateInfoEXT){
 		.sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT,
@@ -433,16 +463,19 @@ void gfx_init(void) {
 	};
 	#endif
 
-	// -- create instance
+	// ---- ---- ---- ----
+	// instance
+	// ---- ---- ---- ----
+
 	vkCreateInstance(
 		&(VkInstanceCreateInfo){
 			.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO,
 			// extensions
-			.enabledExtensionCount = requested_instance_extensions_count,
-			.ppEnabledExtensionNames = requested_instance_extensions,
+			.enabledExtensionCount = required_instance_extensions_count,
+			.ppEnabledExtensionNames = required_instance_extensions,
 			// layers
-			.enabledLayerCount = ArrayCount(requested_instance_layers),
-			.ppEnabledLayerNames = requested_instance_layers,
+			.enabledLayerCount = ArrayCount(required_instance_layers),
+			.ppEnabledLayerNames = required_instance_layers,
 			// application
 			.pApplicationInfo = &(VkApplicationInfo){
 				.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO,
@@ -464,7 +497,10 @@ void gfx_init(void) {
 		&fl_gfx.instance
 	);
 
-	// -- init debug messenger
+	// ---- ---- ---- ----
+	// debug
+	// ---- ---- ---- ----
+
 	#if GFX_ENABLE_DEBUG
 	GFX_DEFINE_PROC(vkCreateDebugUtilsMessengerEXT);
 	vkCreateDebugUtilsMessengerEXT(
@@ -475,129 +511,106 @@ void gfx_init(void) {
 	);
 	#endif
 
-	// -- init an OS-specific presentation surface
-	fl_gfx.surface = (VkSurfaceKHR)os_vulkan_create_surface(fl_gfx.instance, &fl_gfx_allocator);
+	arena_set_position(scratch, scratch_position);
+}
 
-	// -- collect physical device handles
-	uint32_t physical_devices_count;
-	vkEnumeratePhysicalDevices(fl_gfx.instance, &physical_devices_count, NULL);
+AttrFileLocal()
+void gfx_instance_free(void) {
+	#if GFX_ENABLE_DEBUG
+	GFX_DEFINE_PROC(vkDestroyDebugUtilsMessengerEXT);
+	vkDestroyDebugUtilsMessengerEXT(
+		fl_gfx.instance,
+		fl_gfx.debug_utils_messenger,
+		&fl_gfx_allocator
+	);
+	#endif
+
+	vkDestroyInstance(fl_gfx.instance, &fl_gfx_allocator);
+}
+
+// ---- ---- ---- ----
+// device
+// ---- ---- ---- ----
+
+AttrFileLocal()
+void gfx_device_init(void) {
+	struct Arena * scratch = thread_ctx_get_scratch();
+	u64 const scratch_position = arena_get_position(scratch);
+
+	// ---- ---- ---- ----
+	// collect all devices
+	// ---- ---- ---- ----
+
+	uint32_t all_physical_devices_count;
+	vkEnumeratePhysicalDevices(fl_gfx.instance, &all_physical_devices_count, NULL);
+	Assert(all_physical_devices_count > 0, "[gfx] physical devices missing\n");
+
+	VkPhysicalDevice * all_physical_devices = ArenaPushArray(scratch, VkPhysicalDevice, all_physical_devices_count);
+	vkEnumeratePhysicalDevices(fl_gfx.instance, &all_physical_devices_count, all_physical_devices);
+
+	// ---- ---- ---- ----
+	// filter out devices
+	// ---- ---- ---- ----
+
+	AttrFuncLocal()
+	char const * const required_extensions[] = {
+		VK_KHR_SWAPCHAIN_EXTENSION_NAME,
+	};
+
+	uint32_t physical_devices_count = 0;
 	VkPhysicalDevice * physical_devices = ArenaPushArray(scratch, VkPhysicalDevice, physical_devices_count);
-	vkEnumeratePhysicalDevices(fl_gfx.instance, &physical_devices_count, physical_devices);
+	for (uint32_t i = 0; i < all_physical_devices_count; i++) {
+		VkPhysicalDevice const handle = all_physical_devices[i];
 
-	// -- collect physical device properties
+		uint32_t extensions_count;
+		vkEnumerateDeviceExtensionProperties(handle, NULL, &extensions_count, NULL);
+		VkExtensionProperties * extensions = ArenaPushArray(scratch, VkExtensionProperties, extensions_count);
+		vkEnumerateDeviceExtensionProperties(handle, NULL, &extensions_count, extensions);
+
+		char const ** extension_strings = ArenaPushArray(scratch, char const *, extensions_count);
+		for (uint32_t i = 0; i < extensions_count; i++)
+			extension_strings[i] = extensions[i].extensionName;
+
+		bool const match = gfx_match_sets(
+			ArrayCount(required_extensions), required_extensions,
+			extensions_count, extension_strings
+		);
+
+		if (match)
+			physical_devices[physical_devices_count++] = handle;
+		else
+			DbgPrintF("can't satisfy requested extensions set for 0x%p\n", (void *)handle);
+	}
+	Assert(physical_devices_count > 0, "[gfx] physical devices missing\n");
+
+	// ---- ---- ---- ----
+	// properties
+	// ---- ---- ---- ----
+
 	VkPhysicalDeviceProperties * physical_device_properties = ArenaPushArray(scratch, VkPhysicalDeviceProperties, physical_devices_count);
 	for (uint32_t i = 0; i < physical_devices_count; i++) {
 		VkPhysicalDeviceProperties * properties = physical_device_properties + i;
 		vkGetPhysicalDeviceProperties(physical_devices[i], properties);
 	}
 
-	// -- collect physical device surface capabilities
-	VkSurfaceCapabilitiesKHR * surface_capabilities = ArenaPushArray(scratch, VkSurfaceCapabilitiesKHR, physical_devices_count);
-	for (uint32_t i = 0; i < physical_devices_count; i++) {
-		VkSurfaceCapabilitiesKHR * capabilities = surface_capabilities + i;
-		vkGetPhysicalDeviceSurfaceCapabilitiesKHR(physical_devices[i], fl_gfx.surface, capabilities);
-	}
-
-	// -- collect physical device surface formats
-	uint32_t * surface_formats_counts = ArenaPushArray(scratch, uint32_t, physical_devices_count);
-	VkSurfaceFormatKHR ** surface_formats_set = ArenaPushArray(scratch, VkSurfaceFormatKHR *, physical_devices_count);
+	fmt_print("[gfx] physical devices (%u):\n", physical_devices_count);
 	for (uint32_t i = 0; i < physical_devices_count; i++) {
 		VkPhysicalDevice const handle = physical_devices[i];
-		uint32_t * surface_formats_count = surface_formats_counts + i;
-		vkGetPhysicalDeviceSurfaceFormatsKHR(handle, fl_gfx.surface, surface_formats_count, NULL);
-		surface_formats_set[i] = ArenaPushArray(scratch, VkSurfaceFormatKHR, *surface_formats_count);
-		VkSurfaceFormatKHR * surface_formats = surface_formats_set[i];
-		vkGetPhysicalDeviceSurfaceFormatsKHR(handle, fl_gfx.surface, surface_formats_count, surface_formats);
-	}
 
-	// -- collect physical device surface formats
-	uint32_t * present_modes_counts = ArenaPushArray(scratch, uint32_t, physical_devices_count);
-	VkPresentModeKHR ** present_modes_set = ArenaPushArray(scratch, VkPresentModeKHR *, physical_devices_count);
-	for (uint32_t i = 0; i < physical_devices_count; i++) {
-		VkPhysicalDevice const handle = physical_devices[i];
-		uint32_t * present_modes_count = present_modes_counts + i;
-		vkGetPhysicalDeviceSurfacePresentModesKHR(handle, fl_gfx.surface, present_modes_count, NULL);
-		present_modes_set[i] = ArenaPushArray(scratch, VkPresentModeKHR, *present_modes_count);
-		VkPresentModeKHR * present_modes = present_modes_set[i];
-		vkGetPhysicalDeviceSurfacePresentModesKHR(handle, fl_gfx.surface, present_modes_count, present_modes);
-	}
+		VkPhysicalDeviceProperties const properties = physical_device_properties[i];
 
-	// -- collect physical devices extensions
-	uint32_t * physical_devices_extensions_counts = ArenaPushArray(scratch, uint32_t, physical_devices_count);
-	VkExtensionProperties ** physical_devices_extensions = ArenaPushArray(scratch, VkExtensionProperties *, physical_devices_count);
-	for (uint32_t i = 0; i < physical_devices_count; i++) {
-		VkPhysicalDevice const handle = physical_devices[i];
-		uint32_t * extensions_count = physical_devices_extensions_counts + i;
-		vkEnumerateDeviceExtensionProperties(handle, NULL, extensions_count, NULL);
-		physical_devices_extensions[i] = ArenaPushArray(scratch, VkExtensionProperties, *extensions_count);
-		VkExtensionProperties * extensions = physical_devices_extensions[i];
-		vkEnumerateDeviceExtensionProperties(handle, NULL, extensions_count, extensions);
-	}
-
-	// -- log physical devices
-	fmt_print("[gfx] physical devices (%u / %u):\n", physical_devices_count, physical_devices_count);
-	for (uint32_t device_i = 0; device_i < physical_devices_count; device_i++) {
-		VkPhysicalDevice           const   handle       = physical_devices[device_i];
-		VkPhysicalDeviceProperties const * properties   = physical_device_properties + device_i;
-		VkSurfaceCapabilitiesKHR   const * capabilities = surface_capabilities + device_i;
-
-		uint32_t           const   surface_formats_count = surface_formats_counts[device_i];
-		VkSurfaceFormatKHR const * surface_formats       = surface_formats_set[device_i];
-
-		uint32_t         const   present_modes_count = present_modes_counts[device_i];
-		VkPresentModeKHR const * present_modes       = present_modes_set[device_i];
-
-		uint32_t              const   extensions_count = physical_devices_extensions_counts[device_i];
-		VkExtensionProperties const * extensions       = physical_devices_extensions[device_i];
-
-		str8 const type_text = gfx_to_string_physical_device_type(properties->deviceType);
+		str8 const type_text = gfx_to_string_physical_device_type(properties.deviceType);
 		uint32_t const v[4] = {
-			VK_API_VERSION_VARIANT(properties->apiVersion),
-			VK_API_VERSION_MAJOR(properties->apiVersion),
-			VK_API_VERSION_MINOR(properties->apiVersion),
-			VK_API_VERSION_PATCH(properties->apiVersion),
+			VK_API_VERSION_VARIANT(properties.apiVersion),
+			VK_API_VERSION_MAJOR(properties.apiVersion),
+			VK_API_VERSION_MINOR(properties.apiVersion),
+			VK_API_VERSION_PATCH(properties.apiVersion),
 		};
 
-		fmt_print("- %s\n", properties->deviceName);
-		fmt_print("  handle 0x%p\n", (void *)handle);
+		fmt_print("- name:        \"%s\"\n", properties.deviceName);
+		fmt_print("  handle:      0x%p\n", (void *)handle);
 		fmt_print("  device type: %.*s\n", (int)type_text.count, type_text.buffer);
 		fmt_print("  vulkan:      [%u] v%u.%u.%u\n", v[0], v[1], v[2], v[3]);
-
-		fmt_print("  - capabilities:\n");
-		fmt_print("    array layers: %u\n",         capabilities->maxImageArrayLayers);
-		fmt_print("    image count:  [%u .. %u]\n", capabilities->minImageCount, capabilities->maxImageCount);
-		fmt_print("    - extent:\n");
-		fmt_print("      current: %ux%u\n", capabilities->currentExtent.width,  capabilities->currentExtent.height);
-		fmt_print("      minimum: %ux%u\n", capabilities->minImageExtent.width, capabilities->minImageExtent.height);
-		fmt_print("      maximum: %ux%u\n", capabilities->maxImageExtent.width, capabilities->maxImageExtent.height);
-		fmt_print("    - supported:\n");
-		fmt_print("      transforms:      0b%08b\n", capabilities->supportedTransforms);
-		fmt_print("      composite alpha: 0b%08b\n", capabilities->supportedCompositeAlpha);
-		fmt_print("      usage flags:     0b%08b\n", capabilities->supportedUsageFlags);
-
-		fmt_print("  surface formats (%u):\n", surface_formats_count);
-		for (uint32_t i = 0; i < surface_formats_count; i++) {
-			VkSurfaceFormatKHR const * it = surface_formats + i;
-			str8 const surface_format_text = gfx_to_string_format(it->format);
-			str8 const color_space_text = gfx_to_string_color_space(it->colorSpace);
-			fmt_print("  - %-30.*s - %.*s\n",
-				(int)surface_format_text.count, surface_format_text.buffer,
-				(int)color_space_text.count, color_space_text.buffer
-			);
-		}
-
-		fmt_print("  present modes (%u):\n", present_modes_count);
-		for (uint32_t i = 0; i < present_modes_count; i++) {
-			VkPresentModeKHR const it = present_modes[i];
-			str8 const it_text = gfx_to_string_present_mode(it);
-			fmt_print("  - %.*s\n", (int)it_text.count, it_text.buffer);
-		}
-
-		fmt_print("  extensions (%u):\n", extensions_count);
-		for (uint32_t i = 0; i < extensions_count; i++) {
-			VkExtensionProperties const * it = extensions + i; (void)it;
-			// fmt_print("  - %s\n", it->extensionName);
-		}
 	}
 	fmt_print("\n");
 
@@ -606,258 +619,185 @@ void gfx_init(void) {
 	//    @todo probably later compute ones will come handy too
 	//    secondly, we need another compatible with the surface
 	//    and it's likely to be the same one
-	uint32_t * queue_family_graphics_choices = ArenaPushArray(scratch, uint32_t, physical_devices_count); // @note that is `index + 1`
-	uint32_t * queue_family_surface_choices = ArenaPushArray(scratch, uint32_t, physical_devices_count); // @note that is `index + 1`
+	uint32_t * qfamily_graphics_choices = ArenaPushArray(scratch, uint32_t, physical_devices_count); // @note that is `index + 1`
+	uint32_t * qfamily_surface_choices = ArenaPushArray(scratch, uint32_t, physical_devices_count); // @note that is `index + 1`
 	for (uint32_t device_i = 0; device_i < physical_devices_count; device_i++) {
-		VkPhysicalDevice const physical_device = physical_devices[device_i];
+		VkPhysicalDevice const handle = physical_devices[device_i];
 
-		// -- collect various device properties
-		uint32_t queue_family_properties_count;
-		vkGetPhysicalDeviceQueueFamilyProperties(physical_device, &queue_family_properties_count, NULL);
+		uint32_t qfamily_properties_count;
+		vkGetPhysicalDeviceQueueFamilyProperties(handle, &qfamily_properties_count, NULL);
+		VkQueueFamilyProperties * qfamily_properties = ArenaPushArray(scratch, VkQueueFamilyProperties, qfamily_properties_count);
+		vkGetPhysicalDeviceQueueFamilyProperties(handle, &qfamily_properties_count, qfamily_properties);
 
-		enum { QUEUE_FAMILY_PROPERTIES_LIMIT = 8 }; // @todo replace with an arena
-		uint32_t queue_family_properties_enum = queue_family_properties_count < QUEUE_FAMILY_PROPERTIES_LIMIT
-			? queue_family_properties_count
-			: QUEUE_FAMILY_PROPERTIES_LIMIT;
-
-		VkQueueFamilyProperties queue_family_properties[QUEUE_FAMILY_PROPERTIES_LIMIT];
-		vkGetPhysicalDeviceQueueFamilyProperties(physical_device, &queue_family_properties_enum, queue_family_properties);
-
-		VkBool32 queue_family_support_surface[QUEUE_FAMILY_PROPERTIES_LIMIT];
-		for (uint32_t queue_family_i = 0; queue_family_i < queue_family_properties_enum; queue_family_i++) {
-			VkBool32 * it = queue_family_support_surface + queue_family_i;
-			vkGetPhysicalDeviceSurfaceSupportKHR(physical_device, queue_family_i, fl_gfx.surface, it);
-		}
+		VkBool32 * qfamily_surface_support = ArenaPushArray(scratch, VkBool32, qfamily_properties_count);
+		for (uint32_t qfamily_i = 0; qfamily_i < qfamily_properties_count; qfamily_i++)
+			vkGetPhysicalDeviceSurfaceSupportKHR(handle, qfamily_i, fl_gfx.surface, qfamily_surface_support + qfamily_i);
 
 		// -- prefer a single universal queue but still try to come up with something otherwise
-		for (uint32_t queue_family_i = 0; queue_family_i < queue_family_properties_enum; queue_family_i++) {
-			VkQueueFamilyProperties const * it = queue_family_properties + queue_family_i;
-			if ((it->queueFlags & VK_QUEUE_GRAPHICS_BIT) && queue_family_support_surface[queue_family_i]) {
-				queue_family_graphics_choices[device_i] = queue_family_i + 1;
-				queue_family_surface_choices[device_i] = queue_family_i + 1;
+		for (uint32_t qfamily_i = 0; qfamily_i < qfamily_properties_count; qfamily_i++) {
+			VkQueueFamilyProperties const it = qfamily_properties[qfamily_i];
+			VkBool32 const surface_support = qfamily_surface_support[qfamily_i];
+			if ((it.queueFlags & VK_QUEUE_GRAPHICS_BIT) && surface_support) {
+				qfamily_graphics_choices[device_i] = qfamily_i + 1;
+				qfamily_surface_choices[device_i] = qfamily_i + 1;
 				break;
 			}
 		}
-		for (uint32_t queue_family_i = 0; queue_family_i < queue_family_properties_enum && !queue_family_graphics_choices[device_i]; queue_family_i++) {
-			VkQueueFamilyProperties const * it = queue_family_properties + queue_family_i;
-			if (it->queueFlags & VK_QUEUE_GRAPHICS_BIT)
-				queue_family_graphics_choices[device_i] = queue_family_i + 1;
+		for (uint32_t qfamily_i = 0; qfamily_i < qfamily_properties_count && !qfamily_graphics_choices[device_i]; qfamily_i++) {
+			VkQueueFamilyProperties const it = qfamily_properties[qfamily_i];
+			if (it.queueFlags & VK_QUEUE_GRAPHICS_BIT)
+				qfamily_graphics_choices[device_i] = qfamily_i + 1;
 		}
-		for (uint32_t queue_family_i = 0; queue_family_i < queue_family_properties_enum && !queue_family_surface_choices[device_i]; queue_family_i++) {
-			if (queue_family_support_surface[device_i])
-				queue_family_surface_choices[device_i] = queue_family_i + 1;
+		for (uint32_t qfamily_i = 0; qfamily_i < qfamily_properties_count && !qfamily_surface_choices[device_i]; qfamily_i++) {
+			VkBool32 const surface_support = qfamily_surface_support[qfamily_i];
+			if (surface_support)
+				qfamily_surface_choices[device_i] = qfamily_i + 1;
 		}
 	}
 
-	// -- choose a device to go with
-	//    we are interested in an actual GPU
+	// @note it's possible to forcibly prefer, say, a discrete GPU, but better to default
+	// with a first suitable one, giving a chance to the user to sort priorities manually
+	// namely with the "NVIDIA Control Panel" or the "AMD Software: Adrenalin Edition"
 	uint32_t physical_device_choice = 0; // @note that is `index + 1`
 	for (uint32_t i = 0; i < physical_devices_count && !physical_device_choice; i++) {
-		VkPhysicalDeviceProperties const * it = physical_device_properties + i;
-		if (it->deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU
-			&& queue_family_graphics_choices[i] == queue_family_surface_choices[i]
-			&& queue_family_graphics_choices[i]
-			&& queue_family_surface_choices[i])
-				physical_device_choice = i + 1;
-	}
-	for (uint32_t i = 0; i < physical_devices_count && !physical_device_choice; i++) {
-		VkPhysicalDeviceProperties const * it = physical_device_properties + i;
-		if (it->deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU
-			&& queue_family_graphics_choices[i]
-			&& queue_family_surface_choices[i])
-				physical_device_choice = i + 1;
-	}
-	for (uint32_t i = 0; i < physical_devices_count && !physical_device_choice; i++) {
-		VkPhysicalDeviceProperties const * it = physical_device_properties + i;
-		if (it->deviceType == VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU
-			&& queue_family_graphics_choices[i] == queue_family_surface_choices[i]
-			&& queue_family_graphics_choices[i]
-			&& queue_family_surface_choices[i])
-				physical_device_choice = i + 1;
-	}
-	for (uint32_t i = 0; i < physical_devices_count && !physical_device_choice; i++) {
-		VkPhysicalDeviceProperties const * it = physical_device_properties + i;
-		if (it->deviceType == VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU
-			&& queue_family_graphics_choices[i]
-			&& queue_family_surface_choices[i])
-				physical_device_choice = i + 1;
+		VkPhysicalDeviceProperties const it = physical_device_properties[i];
+		if (qfamily_graphics_choices[i] && qfamily_surface_choices[i])
+			physical_device_choice = i + 1;
 	}
 
+	Assert(physical_device_choice > 0, "[gfx] no suitable physical device found\n");
 	uint32_t const physical_device_index = physical_device_choice
 		? physical_device_choice - 1
 		: 0;
 
-	fl_gfx.physical_device = physical_devices[physical_device_index];
+	fl_gfx.device.physical.handle = physical_devices[physical_device_index];
+	fl_gfx.device.physical.main_qfamily_index = qfamily_graphics_choices[physical_device_index] - 1;
+	fl_gfx.device.physical.present_qfamily_index = qfamily_surface_choices[physical_device_index] - 1;
 
-	// -- prepare queue families
-	uint32_t const queue_family_graphics_index = queue_family_graphics_choices[physical_device_index] - 1;
-	uint32_t const queue_family_surface_index = queue_family_surface_choices[physical_device_index] - 1;
+	// ---- ---- ---- ----
+	// surface format
+	// ---- ---- ---- ----
 
-	uint32_t queues_count = 0;
-	enum { QUEUES_LIMIT = 2 }; // @todo replace with an arena
-	uint32_t queue_indices[QUEUES_LIMIT];
-	queue_indices[queues_count++] = queue_family_graphics_index;
-	if (queue_family_graphics_index != queue_family_surface_index)
-		queue_indices[queues_count++] = queue_family_surface_index;
+	fl_gfx.device.physical.surface_format = (VkSurfaceFormatKHR){
+		.format     = VK_FORMAT_MAX_ENUM,
+		.colorSpace = VK_COLOR_SPACE_MAX_ENUM_KHR,
+	};
 
-	VkDeviceQueueCreateInfo queue_infos[QUEUES_LIMIT];
-	for (uint32_t i = 0; i < queues_count; i++)
+	VkFormat const surface_format_preferences[] = {
+		VK_FORMAT_R8G8B8A8_UNORM,
+		VK_FORMAT_B8G8R8A8_UNORM,
+	};
+
+	uint32_t surface_formats_count;
+	vkGetPhysicalDeviceSurfaceFormatsKHR(fl_gfx.device.physical.handle, fl_gfx.surface, &surface_formats_count, NULL);
+	VkSurfaceFormatKHR * surface_formats = ArenaPushArray(scratch, VkSurfaceFormatKHR, surface_formats_count);
+	vkGetPhysicalDeviceSurfaceFormatsKHR(fl_gfx.device.physical.handle, fl_gfx.surface, &surface_formats_count, surface_formats);
+	for (uint32_t i = 0; i < ArrayCount(surface_format_preferences) && fl_gfx.device.physical.surface_format.format == VK_FORMAT_MAX_ENUM; i++) {
+		VkFormat const preference = surface_format_preferences[i];
+		for (uint32_t i = 0; i < surface_formats_count && fl_gfx.device.physical.surface_format.format == VK_FORMAT_MAX_ENUM; i++)
+			if (surface_formats[i].format == preference)
+				fl_gfx.device.physical.surface_format = surface_formats[i];
+	}
+	if (fl_gfx.device.physical.surface_format.format == VK_FORMAT_MAX_ENUM)
+		fl_gfx.device.physical.surface_format = surface_formats[0];
+
+	// ---- ---- ---- ----
+	// present mode
+	// ---- ---- ---- ----
+
+	fl_gfx.device.physical.present_mode = VK_PRESENT_MODE_MAX_ENUM_KHR;
+
+	VkPresentModeKHR const present_mode_preferences[] = {
+		VK_PRESENT_MODE_MAILBOX_KHR,
+		VK_PRESENT_MODE_FIFO_KHR,
+	};
+
+	uint32_t present_modes_count;
+	vkGetPhysicalDeviceSurfacePresentModesKHR(fl_gfx.device.physical.handle, fl_gfx.surface, &present_modes_count, NULL);
+	VkPresentModeKHR * present_modes = ArenaPushArray(scratch, VkPresentModeKHR, present_modes_count);
+	vkGetPhysicalDeviceSurfacePresentModesKHR(fl_gfx.device.physical.handle, fl_gfx.surface, &present_modes_count, present_modes);
+	for (uint32_t i = 0; i < ArrayCount(present_mode_preferences) && fl_gfx.device.physical.present_mode == VK_PRESENT_MODE_MAX_ENUM_KHR; i++) {
+		VkPresentModeKHR const preference = present_mode_preferences[i];
+		for (uint32_t i = 0; i < present_modes_count && fl_gfx.device.physical.present_mode == VK_PRESENT_MODE_MAX_ENUM_KHR; i++)
+			if (present_modes[i] == preference)
+				fl_gfx.device.physical.present_mode = present_modes[i];
+	}
+	if (fl_gfx.device.physical.present_mode == VK_PRESENT_MODE_MAX_ENUM_KHR) {
+		// @note This is the only value of presentMode that is required to be supported.
+		fl_gfx.device.physical.present_mode = VK_PRESENT_MODE_FIFO_KHR;
+	}
+
+	// ---- ---- ---- ----
+	// create logical device
+	// ---- ---- ---- ----
+
+	VkPhysicalDeviceProperties const properties = physical_device_properties[physical_device_index];
+	str8 const surface_format_text = gfx_to_string_format(fl_gfx.device.physical.surface_format.format);
+	str8 const color_space_text = gfx_to_string_color_space(fl_gfx.device.physical.surface_format.colorSpace);
+	str8 const present_mode_text = gfx_to_string_present_mode(fl_gfx.device.physical.present_mode);
+	fmt_print("[gfx] chosen device:\n");
+	fmt_print("- name:           \"%s\"\n", properties.deviceName);
+	fmt_print("- handle:         0x%p\n", (void *)fl_gfx.device.physical.handle);
+	fmt_print("- surface format: %.*s\n", (int)surface_format_text.count, surface_format_text.buffer);
+	fmt_print("- color space:    %.*s\n", (int)color_space_text.count, color_space_text.buffer);
+	fmt_print("- present mode:   %.*s\n", (int)present_mode_text.count, present_mode_text.buffer);
+	fmt_print("\n");
+
+	fl_gfx.device.qfamilies_count = 0;
+	fl_gfx.device.qfamily_indices[fl_gfx.device.qfamilies_count++] = fl_gfx.device.physical.main_qfamily_index;
+	if (fl_gfx.device.physical.main_qfamily_index != fl_gfx.device.physical.present_qfamily_index)
+		fl_gfx.device.qfamily_indices[fl_gfx.device.qfamilies_count++] = fl_gfx.device.physical.present_qfamily_index;
+
+	VkDeviceQueueCreateInfo queue_infos[2];
+	for (uint32_t i = 0; i < fl_gfx.device.qfamilies_count; i++)
 		queue_infos[i] = (VkDeviceQueueCreateInfo){
 			.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO,
-			.queueFamilyIndex = queue_indices[i],
+			.queueFamilyIndex = fl_gfx.device.qfamily_indices[i],
 			// priorities
 			.queueCount = 1,
 			.pQueuePriorities = (float[]){ 1 },
 		};
 
-	// --prepare logcal device layers
-	char const * const requested_device_extensions[] = {
-		VK_KHR_SWAPCHAIN_EXTENSION_NAME,
-	};
-
-	uint32_t              const   chosen_device_extensions_count = physical_devices_extensions_counts[physical_device_index];
-	VkExtensionProperties const * chosen_device_extensions       = physical_devices_extensions[physical_device_index];
-	for (uint32_t i = 0; i < ArrayCount(requested_device_extensions); i++) {
-		char const * requested = requested_device_extensions[i];
-		for (uint32_t i = 0; i < chosen_device_extensions_count; i++) {
-			char const * available = chosen_device_extensions[i].extensionName;
-			if (str_equals(requested, available))
-				goto device_extension_found;
-		}
-		AssertF(false, "device extension \"%s\" is not available\n", requested);
-		device_extension_found:;
-	}
-
-	// -- create a logical device
 	vkCreateDevice(
-		fl_gfx.physical_device,
+		fl_gfx.device.physical.handle,
 		&(VkDeviceCreateInfo){
 			.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO,
 			// queue families
-			.queueCreateInfoCount = queues_count,
+			.queueCreateInfoCount = fl_gfx.device.qfamilies_count,
 			.pQueueCreateInfos = queue_infos,
 			// extensions
-			.enabledExtensionCount = ArrayCount(requested_device_extensions),
-			.ppEnabledExtensionNames = requested_device_extensions,
+			.enabledExtensionCount = ArrayCount(required_extensions),
+			.ppEnabledExtensionNames = required_extensions,
 		},
 		&fl_gfx_allocator,
-		&fl_gfx.device
+		&fl_gfx.device.handle
 	);
 
-	// -- retrieve the device queues
-	vkGetDeviceQueue(fl_gfx.device, queue_family_graphics_index, 0, &fl_gfx.device_graphics_queue);
-	vkGetDeviceQueue(fl_gfx.device, queue_family_surface_index,  0, &fl_gfx.device_surface_queue);
+	vkGetDeviceQueue(fl_gfx.device.handle, fl_gfx.device.physical.main_qfamily_index, 0, &fl_gfx.device.main_queue);
+	vkGetDeviceQueue(fl_gfx.device.handle, fl_gfx.device.physical.present_qfamily_index,  0, &fl_gfx.device.present_queue);
 
-	// -- prepare swapchain surface capabilities
-	VkSurfaceCapabilitiesKHR capabilities = surface_capabilities[physical_device_index];
-	fl_gfx.swapchain_extent = capabilities.currentExtent;
-	if (fl_gfx.swapchain_extent.width == UINT32_MAX && fl_gfx.swapchain_extent.height == UINT32_MAX)
-		os_surface_get_size(&fl_gfx.swapchain_extent.width, &fl_gfx.swapchain_extent.height);
+	arena_set_position(scratch, scratch_position);
+}
 
-	// -- prepare swapchain surface format
-	uint32_t           const   surface_formats_count = surface_formats_counts[physical_device_index];
-	VkSurfaceFormatKHR const * surface_formats       = surface_formats_set[physical_device_index];
-	VkSurfaceFormatKHR         surface_format        = {
-		.format     = VK_FORMAT_MAX_ENUM,
-		.colorSpace = VK_COLOR_SPACE_MAX_ENUM_KHR,
-	};
-	for (uint32_t i = 0; i < surface_formats_count && surface_format.format == VK_FORMAT_MAX_ENUM; i++)
-		if (surface_formats[i].format == VK_FORMAT_R8G8B8A8_UNORM)
-			surface_format = surface_formats[i];
-	for (uint32_t i = 0; i < surface_formats_count && surface_format.format == VK_FORMAT_MAX_ENUM; i++)
-		if (surface_formats[i].format == VK_FORMAT_B8G8R8A8_UNORM)
-			surface_format = surface_formats[i];
-	if (surface_format.format == VK_FORMAT_MAX_ENUM)
-		surface_format = surface_formats[0];
-	fl_gfx.surface_format = surface_format.format;
+AttrFileLocal()
+void gfx_device_free(void) {
+	vkDestroyDevice(fl_gfx.device.handle, &fl_gfx_allocator);
+}
 
-	// -- prepare swapchain present mode
-	uint32_t         const   present_modes_count = present_modes_counts[physical_device_index];
-	VkPresentModeKHR const * present_modes       = present_modes_set[physical_device_index];
-	VkPresentModeKHR         present_mode        = VK_PRESENT_MODE_MAX_ENUM_KHR;
-	for (uint32_t i = 0; i < present_modes_count && present_mode == VK_PRESENT_MODE_MAX_ENUM_KHR; i++)
-		if (present_modes[i] == VK_PRESENT_MODE_MAILBOX_KHR)
-			present_mode = present_modes[i];
-	if (present_mode == VK_PRESENT_MODE_MAX_ENUM_KHR)
-		present_mode = VK_PRESENT_MODE_FIFO_KHR;
+// ---- ---- ---- ----
+// render pass
+// ---- ---- ---- ----
 
-	// -- create a swap chain
-	vkCreateSwapchainKHR(
-		fl_gfx.device,
-		&(VkSwapchainCreateInfoKHR){
-			.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR,
-			.surface = fl_gfx.surface,
-			// present mode
-			.presentMode = present_mode,
-			// surface capabilities
-			.preTransform = capabilities.currentTransform,
-			.minImageCount = min_u32(capabilities.minImageCount + 1, capabilities.maxImageCount),
-			.imageExtent = fl_gfx.swapchain_extent,
-			// surface format
-			.imageFormat = surface_format.format,
-			.imageColorSpace = surface_format.colorSpace,
-			// queue families
-			.imageSharingMode = queues_count >= 2
-				? VK_SHARING_MODE_CONCURRENT
-				: VK_SHARING_MODE_EXCLUSIVE,
-			.queueFamilyIndexCount = queues_count,
-			.pQueueFamilyIndices = queue_indices,
-			// image params
-			.imageArrayLayers = 1,
-			.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,
-			// composition params
-			.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR,
-			.clipped = VK_TRUE,
-		},
-		&fl_gfx_allocator,
-		&fl_gfx.swapchain
-	);
-
-	// -- retrieve the swapchain images
-	vkGetSwapchainImagesKHR(fl_gfx.device, fl_gfx.swapchain, &fl_gfx.swapchain_images_count, NULL);
-	fl_gfx.swapchain_images = os_memory_heap(NULL, sizeof(VkImage) * fl_gfx.swapchain_images_count);
-	vkGetSwapchainImagesKHR(fl_gfx.device, fl_gfx.swapchain, &fl_gfx.swapchain_images_count, fl_gfx.swapchain_images);
-
-	// -- create corresponding image views
-	fl_gfx.swapchain_image_views = os_memory_heap(NULL, sizeof(VkImageView) * fl_gfx.swapchain_images_count);
-	for (uint32_t i = 0; i < fl_gfx.swapchain_images_count; i++)
-		vkCreateImageView(
-			fl_gfx.device, &(VkImageViewCreateInfo){
-				.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
-				.image = fl_gfx.swapchain_images[i],
-				.viewType = VK_IMAGE_VIEW_TYPE_2D,
-				.format = surface_format.format,
-				.subresourceRange = {
-					.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
-					// mip map
-					.levelCount = 1,
-					// layers
-					.layerCount = 1,
-				},
-			},
-			&fl_gfx_allocator,
-			fl_gfx.swapchain_image_views + i
-		);
-
-	// -- create pipeline layout
-	vkCreatePipelineLayout(
-		fl_gfx.device,
-		&(VkPipelineLayoutCreateInfo){
-			.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
-		},
-		&fl_gfx_allocator,
-		&fl_gfx.pipeline_layout
-	);
-
-	// -- create render pass
+AttrFileLocal()
+void gfx_render_pass_init(void) {
 	vkCreateRenderPass(
-		fl_gfx.device,
+		fl_gfx.device.handle,
 		&(VkRenderPassCreateInfo){
 			.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO,
 			// attachments
 			.attachmentCount = 1,
 			.pAttachments = &(VkAttachmentDescription){
-				.format = surface_format.format,
+				.format = fl_gfx.device.physical.surface_format.format,
 				.samples = VK_SAMPLE_COUNT_1_BIT,
 				// layout
 				.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
@@ -896,34 +836,219 @@ void gfx_init(void) {
 		&fl_gfx_allocator,
 		&fl_gfx.render_pass
 	);
+}
 
-	// -- create graphics pipeline
+AttrFileLocal()
+void gfx_render_pass_free(void) {
+	vkDestroyRenderPass(fl_gfx.device.handle, fl_gfx.render_pass, &fl_gfx_allocator);
+}
+
+// ---- ---- ---- ----
+// swapchain
+// ---- ---- ---- ----
+
+AttrFileLocal()
+void gfx_swapchain_init(VkSwapchainKHR old_swapchain) {
+	// ---- ---- ---- ----
+	// surface capabilities
+	// ---- ---- ---- ----
+
+	VkSurfaceCapabilitiesKHR surface_capabilities;
+	vkGetPhysicalDeviceSurfaceCapabilitiesKHR(fl_gfx.device.physical.handle, fl_gfx.surface, &surface_capabilities);
+
+	fl_gfx.swapchain.extent = surface_capabilities.currentExtent;
+	if (fl_gfx.swapchain.extent.width == UINT32_MAX && fl_gfx.swapchain.extent.height == UINT32_MAX)
+		os_surface_get_size(&fl_gfx.swapchain.extent.width, &fl_gfx.swapchain.extent.height);
+
+	if (fl_gfx.swapchain.extent.width == 0 || fl_gfx.swapchain.extent.height == 0)
+		return;
+
+	// ---- ---- ---- ----
+	// swapchain
+	// ---- ---- ---- ----
+
+	vkCreateSwapchainKHR(
+		fl_gfx.device.handle,
+		&(VkSwapchainCreateInfoKHR){
+			.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR,
+			.surface = fl_gfx.surface,
+			.oldSwapchain = old_swapchain,
+			// present mode
+			.presentMode = fl_gfx.device.physical.present_mode,
+			// surface capabilities
+			.preTransform = surface_capabilities.currentTransform,
+			.minImageCount = min_u32(surface_capabilities.minImageCount + 1, surface_capabilities.maxImageCount),
+			.imageExtent = fl_gfx.swapchain.extent,
+			// surface format
+			.imageFormat = fl_gfx.device.physical.surface_format.format,
+			.imageColorSpace = fl_gfx.device.physical.surface_format.colorSpace,
+			// queue families
+			.imageSharingMode = fl_gfx.device.qfamilies_count >= 2
+				? VK_SHARING_MODE_CONCURRENT
+				: VK_SHARING_MODE_EXCLUSIVE,
+			.queueFamilyIndexCount = fl_gfx.device.qfamilies_count,
+			.pQueueFamilyIndices = fl_gfx.device.qfamily_indices,
+			// image params
+			.imageArrayLayers = 1,
+			.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,
+			// composition params
+			.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR,
+			.clipped = VK_TRUE,
+		},
+		&fl_gfx_allocator,
+		&fl_gfx.swapchain.handle
+	);
+
+	vkGetSwapchainImagesKHR(fl_gfx.device.handle, fl_gfx.swapchain.handle, &fl_gfx.swapchain.images_count, NULL);
+	fl_gfx.swapchain.images = os_memory_heap(NULL, sizeof(VkImage) * fl_gfx.swapchain.images_count);
+	vkGetSwapchainImagesKHR(fl_gfx.device.handle, fl_gfx.swapchain.handle, &fl_gfx.swapchain.images_count, fl_gfx.swapchain.images);
+
+	// ---- ---- ---- ----
+	// image views
+	// ---- ---- ---- ----
+
+	fl_gfx.swapchain.image_views = os_memory_heap(NULL, sizeof(VkImageView) * fl_gfx.swapchain.images_count);
+	for (uint32_t i = 0; i < fl_gfx.swapchain.images_count; i++)
+		vkCreateImageView(
+			fl_gfx.device.handle,
+			&(VkImageViewCreateInfo){
+				.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
+				.image = fl_gfx.swapchain.images[i],
+				.viewType = VK_IMAGE_VIEW_TYPE_2D,
+				.format = fl_gfx.device.physical.surface_format.format,
+				.subresourceRange = {
+					.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+					// mip map
+					.levelCount = 1,
+					// layers
+					.layerCount = 1,
+				},
+			},
+			&fl_gfx_allocator,
+			fl_gfx.swapchain.image_views + i
+		);
+
+	// ---- ---- ---- ----
+	// framebuffers
+	// ---- ---- ---- ----
+
+	fl_gfx.swapchain.framebuffers = os_memory_heap(NULL, sizeof(VkFramebuffer) * fl_gfx.swapchain.images_count);
+	for (uint32_t i = 0; i < fl_gfx.swapchain.images_count; i++) {
+		vkCreateFramebuffer(
+			fl_gfx.device.handle,
+			&(VkFramebufferCreateInfo){
+				.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO,
+				.renderPass = fl_gfx.render_pass,
+				.width = fl_gfx.swapchain.extent.width,
+				.height = fl_gfx.swapchain.extent.height,
+				.layers = 1,
+				// attachments
+				.attachmentCount = 1,
+				.pAttachments = fl_gfx.swapchain.image_views + i,
+			},
+			&fl_gfx_allocator,
+			fl_gfx.swapchain.framebuffers + i
+		);
+	}
+}
+
+AttrFileLocal()
+void gfx_swapchain_free(struct GFX_Swapchain swapchain) {
+	if (swapchain.handle == VK_NULL_HANDLE)
+		return;
+
+	for (uint32_t i = 0; i < swapchain.images_count; i++)
+		vkDestroyFramebuffer(fl_gfx.device.handle, swapchain.framebuffers[i], &fl_gfx_allocator);
+
+	for (uint32_t i = 0; i < swapchain.images_count; i++)
+		vkDestroyImageView(fl_gfx.device.handle, swapchain.image_views[i], &fl_gfx_allocator);
+
+	if (swapchain.handle != VK_NULL_HANDLE) {
+		vkDestroySwapchainKHR(fl_gfx.device.handle, swapchain.handle, &fl_gfx_allocator);
+		swapchain.handle = VK_NULL_HANDLE;
+	}
+
+	os_memory_heap(swapchain.framebuffers, 0);
+	os_memory_heap(swapchain.image_views, 0);
+	os_memory_heap(swapchain.images, 0);
+}
+
+AttrFileLocal()
+void gfx_swapchain_recreate(void) {
+	struct GFX_Swapchain const previous = fl_gfx.swapchain;
+	fl_gfx.swapchain = (struct GFX_Swapchain){0};
+	gfx_swapchain_init(previous.handle);
+	// @todo don't halt the main thread
+	vkDeviceWaitIdle(fl_gfx.device.handle);
+	gfx_swapchain_free(previous);
+}
+
+// ---- ---- ---- ----
+// pipeline / USER DATA
+// ---- ---- ---- ----
+
+AttrFileLocal()
+VkShaderModule gfx_shader_module_create(char const * name) {
+	struct Arena * scratch = thread_ctx_get_scratch();
+	u64 const scratch_position = arena_get_position(scratch);
+
+	struct Array_U8 const source = base_file_read(scratch, name);
+	VkShaderModule ret;
+	vkCreateShaderModule(
+		fl_gfx.device.handle,
+		&(VkShaderModuleCreateInfo){
+			.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO,
+			.codeSize = source.count,
+			.pCode = (void *)source.buffer,
+		},
+		&fl_gfx_allocator,
+		&ret
+	);
+
+	arena_set_position(scratch, scratch_position);
+	return ret;
+}
+
+AttrFileLocal()
+void gfx_graphics_pipeline_init(void) {
+	// -- prepare shaders
 	VkPipelineShaderStageCreateInfo const shader_stages[] = {
 		{
 			.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
 			.stage = VK_SHADER_STAGE_VERTEX_BIT,
-			.module = gfx_create_shader_module("shader.vert.spirv"),
+			.module = gfx_shader_module_create("shader.vert.spirv"),
 			.pName = "main",
 		},
 		{
 			.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
 			.stage = VK_SHADER_STAGE_FRAGMENT_BIT,
-			.module = gfx_create_shader_module("shader.frag.spirv"),
+			.module = gfx_shader_module_create("shader.frag.spirv"),
 			.pName = "main",
 		},
 	};
 
+	// -- create pipeline layout
+	vkCreatePipelineLayout(
+		fl_gfx.device.handle,
+		&(VkPipelineLayoutCreateInfo){
+			.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
+		},
+		&fl_gfx_allocator,
+		&fl_gfx.pipeline.layout
+	);
+
+	// -- create graphics pipeline
 	AttrFuncLocal() VkDynamicState const dynamic_states[] = {
 		VK_DYNAMIC_STATE_VIEWPORT,
 		VK_DYNAMIC_STATE_SCISSOR,
 	};
 
 	vkCreateGraphicsPipelines(
-		fl_gfx.device,
+		fl_gfx.device.handle,
 		VK_NULL_HANDLE,
 		1, &(VkGraphicsPipelineCreateInfo){
 			.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO,
-			.layout = fl_gfx.pipeline_layout,
+			.layout = fl_gfx.pipeline.layout,
 			.renderPass = fl_gfx.render_pass,
 			.subpass = 0,
 			// stages
@@ -985,46 +1110,38 @@ void gfx_init(void) {
 			},
 		},
 		&fl_gfx_allocator,
-		&fl_gfx.graphics_pipeline
+		&fl_gfx.pipeline.handle
 	);
 
 	for (uint32_t i = 0, count = ArrayCount(shader_stages); i < count; i++)
-		vkDestroyShaderModule(fl_gfx.device, shader_stages[i].module, &fl_gfx_allocator);
+		vkDestroyShaderModule(fl_gfx.device.handle, shader_stages[i].module, &fl_gfx_allocator);
+}
 
-	// --create framebuffers
-	fl_gfx.framebuffers = os_memory_heap(NULL, sizeof(VkFramebuffer) * fl_gfx.swapchain_images_count);
-	for (uint32_t i = 0; i < fl_gfx.swapchain_images_count; i++) {
-		vkCreateFramebuffer(
-			fl_gfx.device,
-			&(VkFramebufferCreateInfo){
-				.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO,
-				.renderPass = fl_gfx.render_pass,
-				.width = fl_gfx.swapchain_extent.width,
-				.height = fl_gfx.swapchain_extent.height,
-				.layers = 1,
-				// attachments
-				.attachmentCount = 1,
-				.pAttachments = fl_gfx.swapchain_image_views + i,
-			},
-			&fl_gfx_allocator,
-			fl_gfx.framebuffers + i
-		);
-	}
+AttrFileLocal()
+void gfx_graphics_pipeline_free(void) {
+	vkDestroyPipeline(fl_gfx.device.handle, fl_gfx.pipeline.handle, &fl_gfx_allocator);
+	vkDestroyPipelineLayout(fl_gfx.device.handle, fl_gfx.pipeline.layout, &fl_gfx_allocator);
+}
 
-	// -- create command pool with buffers
+// ---- ---- ---- ----
+// command pool
+// ---- ---- ---- ----
+
+AttrFileLocal()
+void gfx_command_pool_init(void) {
 	vkCreateCommandPool(
-		fl_gfx.device,
+		fl_gfx.device.handle,
 		&(VkCommandPoolCreateInfo){
 			.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
 			.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT,
-			.queueFamilyIndex = queue_family_graphics_index,
+			.queueFamilyIndex = fl_gfx.device.physical.main_qfamily_index,
 		},
 		&fl_gfx_allocator,
 		&fl_gfx.command_pool
 	);
 
 	vkAllocateCommandBuffers(
-		fl_gfx.device,
+		fl_gfx.device.handle,
 		&(VkCommandBufferAllocateInfo){
 			.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
 			.commandPool = fl_gfx.command_pool,
@@ -1033,11 +1150,22 @@ void gfx_init(void) {
 		},
 		fl_gfx.command_buffers
 	);
+}
 
-	// -- create synchronization
+AttrFileLocal()
+void gfx_command_pool_free(void) {
+	vkDestroyCommandPool(fl_gfx.device.handle, fl_gfx.command_pool, &fl_gfx_allocator);
+}
+
+// ---- ---- ---- ----
+// synchronization
+// ---- ---- ---- ----
+
+AttrFileLocal()
+void gfx_synchronization_init(void) {
 	for (uint32_t i = 0; i < GFX_FRAMES_IN_FLIGHT; i++)
 		vkCreateSemaphore(
-			fl_gfx.device,
+			fl_gfx.device.handle,
 			&(VkSemaphoreCreateInfo){
 				.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO,
 			},
@@ -1046,7 +1174,7 @@ void gfx_init(void) {
 		);
 	for (uint32_t i = 0; i < GFX_FRAMES_IN_FLIGHT; i++)
 		vkCreateSemaphore(
-			fl_gfx.device,
+			fl_gfx.device.handle,
 			&(VkSemaphoreCreateInfo){
 				.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO,
 			},
@@ -1055,7 +1183,7 @@ void gfx_init(void) {
 		);
 	for (uint32_t i = 0; i < GFX_FRAMES_IN_FLIGHT; i++)
 		vkCreateFence(
-			fl_gfx.device,
+			fl_gfx.device.handle,
 			&(VkFenceCreateInfo){
 				.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,
 				.flags = VK_FENCE_CREATE_SIGNALED_BIT,
@@ -1063,91 +1191,78 @@ void gfx_init(void) {
 			&fl_gfx_allocator,
 			fl_gfx.in_flight_fences + i
 		);
-
-	arena_set_position(scratch, scratch_position);
 }
 
 AttrFileLocal()
-void gfx_free_swapchain(void) {
-	// -- destroy framebuffers
-	for (uint32_t i = 0; i < fl_gfx.swapchain_images_count; i++)
-		vkDestroyFramebuffer(fl_gfx.device, fl_gfx.framebuffers[i], &fl_gfx_allocator);
-	os_memory_heap(fl_gfx.framebuffers, 0);
+void gfx_synchronization_free(void) {
+	for (uint32_t i = 0; i < GFX_FRAMES_IN_FLIGHT; i++)
+		vkDestroySemaphore(fl_gfx.device.handle, fl_gfx.image_available_semaphores[i], &fl_gfx_allocator);
+	for (uint32_t i = 0; i < GFX_FRAMES_IN_FLIGHT; i++)
+		vkDestroySemaphore(fl_gfx.device.handle, fl_gfx.render_finished_semaphores[i], &fl_gfx_allocator);
+	for (uint32_t i = 0; i < GFX_FRAMES_IN_FLIGHT; i++)
+		vkDestroyFence(fl_gfx.device.handle, fl_gfx.in_flight_fences[i], &fl_gfx_allocator);
+}
 
-	// -- destroy the swapchain images array
-	for (uint32_t i = 0; i < fl_gfx.swapchain_images_count; i++)
-		vkDestroyImageView(fl_gfx.device, fl_gfx.swapchain_image_views[i], &fl_gfx_allocator);
-	os_memory_heap(fl_gfx.swapchain_image_views, 0);
+// ---- ---- ---- ----
+// API
+// ---- ---- ---- ----
 
-	// -- destroy the swapchain
-	vkDestroySwapchainKHR(fl_gfx.device, fl_gfx.swapchain, &fl_gfx_allocator);
+void gfx_init(void) {
+	// -- indentation symbolizes order dependence
+	gfx_instance_init();
+		fl_gfx.surface = (VkSurfaceKHR)os_vulkan_create_surface(fl_gfx.instance, &fl_gfx_allocator);
+			gfx_device_init();
+				gfx_synchronization_init();
+				gfx_command_pool_init();
+				gfx_render_pass_init();
+					gfx_swapchain_init(VK_NULL_HANDLE);
+					gfx_graphics_pipeline_init();
 }
 
 void gfx_free(void) {
-	// -- wait for device to idle
-	vkDeviceWaitIdle(fl_gfx.device);
+	vkDeviceWaitIdle(fl_gfx.device.handle);
 
-	// -- destroy syncronzation
-	for (uint32_t i = 0; i < GFX_FRAMES_IN_FLIGHT; i++)
-		vkDestroySemaphore(fl_gfx.device, fl_gfx.image_available_semaphores[i], &fl_gfx_allocator);
-	for (uint32_t i = 0; i < GFX_FRAMES_IN_FLIGHT; i++)
-		vkDestroySemaphore(fl_gfx.device, fl_gfx.render_finished_semaphores[i], &fl_gfx_allocator);
-	for (uint32_t i = 0; i < GFX_FRAMES_IN_FLIGHT; i++)
-		vkDestroyFence(fl_gfx.device, fl_gfx.in_flight_fences[i], &fl_gfx_allocator);
+	// any order within same indentation
+	gfx_synchronization_free();
+	gfx_command_pool_free();
+	gfx_graphics_pipeline_free();
+	gfx_render_pass_free();
 
-	// -- destroy command pool
-	vkDestroyCommandPool(fl_gfx.device, fl_gfx.command_pool, &fl_gfx_allocator);
+	gfx_swapchain_free(fl_gfx.swapchain);
+		vkDestroySurfaceKHR(fl_gfx.instance, fl_gfx.surface, &fl_gfx_allocator);
 
-	gfx_free_swapchain();
+	// -- always last
+	gfx_device_free();
+		gfx_instance_free();
 
-	// -- destroy pipeline
-	vkDestroyPipeline(fl_gfx.device, fl_gfx.graphics_pipeline, &fl_gfx_allocator);
-	vkDestroyPipelineLayout(fl_gfx.device, fl_gfx.pipeline_layout, &fl_gfx_allocator);
-
-	// -- destroy render pass
-	vkDestroyRenderPass(fl_gfx.device, fl_gfx.render_pass, &fl_gfx_allocator);
-
-	// -- destroy the swapchain images array
-	os_memory_heap(fl_gfx.swapchain_images, 0);
-
-	// -- destroy the logical device
-	vkDestroyDevice(fl_gfx.device, &fl_gfx_allocator);
-
-	// -- deinit the debug messenger
-	#if GFX_ENABLE_DEBUG
-	GFX_DEFINE_PROC(vkDestroyDebugUtilsMessengerEXT);
-	vkDestroyDebugUtilsMessengerEXT(
-		fl_gfx.instance,
-		fl_gfx.debug_utils_messenger,
-		&fl_gfx_allocator
-	);
-	#endif
-
-	// -- destroy the surface
-	vkDestroySurfaceKHR(fl_gfx.instance, fl_gfx.surface, &fl_gfx_allocator);
-
-	// destroy the instance
-	vkDestroyInstance(fl_gfx.instance, &fl_gfx_allocator);
-
-	// -- zero the memory
 	mem_zero(&fl_gfx, sizeof(fl_gfx));
 }
 
 void gfx_tick(void) {
-	uint32_t        const frame                     = fl_gfx.frame;
+
+	if (fl_gfx.swapchain.handle == VK_NULL_HANDLE)
+		return;
+
+	uint32_t        const frame                     = fl_gfx.swapchain.frame;
 	VkCommandBuffer const command_buffer            = fl_gfx.command_buffers[frame];
 	VkSemaphore     const image_available_semaphore = fl_gfx.image_available_semaphores[frame];
 	VkSemaphore     const render_finished_semaphore = fl_gfx.render_finished_semaphores[frame];
 	VkFence         const in_flight_fence           = fl_gfx.in_flight_fences[frame];
 
-	// -- wait for the previous frame
-	vkWaitForFences(fl_gfx.device, 1, &in_flight_fence, VK_TRUE, UINT64_MAX);
+	// ---- ---- ---- ----
+	// wait previous frame
+	// ---- ---- ---- ----
 
-	// -- prepare for the next frame
+	vkWaitForFences(fl_gfx.device.handle, 1, &in_flight_fence, VK_TRUE, UINT64_MAX);
+
+	// ---- ---- ---- ----
+	// prepare next frame
+	// ---- ---- ---- ----
+
 	uint32_t image_index;
 	VkResult const aquire_next_image_result =
 	vkAcquireNextImageKHR(
-		fl_gfx.device, fl_gfx.swapchain,
+		fl_gfx.device.handle, fl_gfx.swapchain.handle,
 		UINT64_MAX, image_available_semaphore, VK_NULL_HANDLE, &image_index
 	);
 	switch (aquire_next_image_result) {
@@ -1162,10 +1277,13 @@ void gfx_tick(void) {
 		default: return;
 	}
 
-	vkResetFences(fl_gfx.device, 1, &in_flight_fence);
+	vkResetFences(fl_gfx.device.handle, 1, &in_flight_fence);
 	vkResetCommandBuffer(command_buffer, 0);
 
-	// -- draw
+	// ---- ---- ---- ----
+	// draw
+	// ---- ---- ---- ----
+
 	vkBeginCommandBuffer(command_buffer, &(VkCommandBufferBeginInfo){
 		.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
 	});
@@ -1173,9 +1291,9 @@ void gfx_tick(void) {
 	vkCmdBeginRenderPass(command_buffer, &(VkRenderPassBeginInfo){
 		.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
 		.renderPass = fl_gfx.render_pass,
-		.framebuffer = fl_gfx.framebuffers[image_index],
+		.framebuffer = fl_gfx.swapchain.framebuffers[image_index],
 		.renderArea = {
-			.extent = fl_gfx.swapchain_extent,
+			.extent = fl_gfx.swapchain.extent,
 		},
 		// clear
 		.clearValueCount = 1,
@@ -1184,28 +1302,31 @@ void gfx_tick(void) {
 		},
 	}, VK_SUBPASS_CONTENTS_INLINE);
 
-	vkCmdBindPipeline(command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, fl_gfx.graphics_pipeline);
+	vkCmdBindPipeline(command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, fl_gfx.pipeline.handle);
 	vkCmdSetViewport(command_buffer, 0, 1, &(VkViewport){
-		// offset, y-up
+		// offset, Y positive up
 		.x = (float)0,
-		.y = (float)fl_gfx.swapchain_extent.height,
-		// scale, y-up
-		.width = (float)fl_gfx.swapchain_extent.width,
-		.height = -(float)fl_gfx.swapchain_extent.height,
+		.y = (float)fl_gfx.swapchain.extent.height,
+		// scale, Y positive up
+		.width = (float)fl_gfx.swapchain.extent.width,
+		.height = -(float)fl_gfx.swapchain.extent.height,
 		// depth
 		.minDepth = 0,
 		.maxDepth = 1,
 	});
 	vkCmdSetScissor(command_buffer, 0, 1, &(VkRect2D){
-		.extent = fl_gfx.swapchain_extent,
+		.extent = fl_gfx.swapchain.extent,
 	});
 	vkCmdDraw(command_buffer, 3, 1, 0, 0);
 
 	vkCmdEndRenderPass(command_buffer);
 	vkEndCommandBuffer(command_buffer);
 
-	// -- submit
-	vkQueueSubmit(fl_gfx.device_graphics_queue, 1, &(VkSubmitInfo){
+	// ---- ---- ---- ----
+	// submit
+	// ---- ---- ---- ----
+
+	vkQueueSubmit(fl_gfx.device.main_queue, 1, &(VkSubmitInfo){
 		.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
 		// wait semaphores
 		.waitSemaphoreCount = 1,
@@ -1221,16 +1342,19 @@ void gfx_tick(void) {
 		.pSignalSemaphores = &render_finished_semaphore,
 	}, in_flight_fence);
 
-	// -- present
+	// ---- ---- ---- ----
+	// present
+	// ---- ---- ---- ----
+
 	VkResult const queue_present_result =
-	vkQueuePresentKHR(fl_gfx.device_surface_queue, &(VkPresentInfoKHR){
+	vkQueuePresentKHR(fl_gfx.device.present_queue, &(VkPresentInfoKHR){
 		.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,
 		// wait semaphores
 		.waitSemaphoreCount = 1,
 		.pWaitSemaphores = &render_finished_semaphore,
 		// swap chains
 		.swapchainCount = 1,
-		.pSwapchains = &fl_gfx.swapchain,
+		.pSwapchains = &fl_gfx.swapchain.handle,
 		.pImageIndices = &image_index,
 	});
 	switch (queue_present_result) {
@@ -1240,7 +1364,7 @@ void gfx_tick(void) {
 		default: break;
 	}
 
-	fl_gfx.frame = (fl_gfx.frame + 1) % GFX_FRAMES_IN_FLIGHT;
+	fl_gfx.swapchain.frame = (fl_gfx.swapchain.frame + 1) % GFX_FRAMES_IN_FLIGHT;
 }
 
 #undef GFX_DEFINE_PROC
