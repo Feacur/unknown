@@ -315,6 +315,9 @@ struct GFX {
 		VkPipelineLayout layout;
 		VkPipeline       handle;
 	} pipeline;
+	// vertices / USER DATA
+	VkBuffer vertex_buffer;
+	VkDeviceMemory vertex_buffer_memory;
 } fl_gfx;
 
 AttrFileLocal()
@@ -988,6 +991,11 @@ void gfx_swapchain_recreate(void) {
 // pipeline / USER DATA
 // ---- ---- ---- ----
 
+struct Vertex {
+	float position[2];
+	float color[3];
+};
+
 AttrFileLocal()
 VkShaderModule gfx_shader_module_create(char const * name) {
 	struct Arena * scratch = thread_ctx_get_scratch();
@@ -1058,6 +1066,29 @@ void gfx_graphics_pipeline_init(void) {
 			// vertices
 			.pVertexInputState = &(VkPipelineVertexInputStateCreateInfo){
 				.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
+				// binding
+				.vertexBindingDescriptionCount = 1,
+				.pVertexBindingDescriptions = &(VkVertexInputBindingDescription){
+					.binding = 0,
+					.stride = sizeof(struct Vertex),
+					.inputRate = VK_VERTEX_INPUT_RATE_VERTEX,
+				},
+				// attributes
+				.vertexAttributeDescriptionCount = 2,
+				.pVertexAttributeDescriptions = (VkVertexInputAttributeDescription[]){
+					[0] = {
+						.binding = 0,
+						.location = 0,
+						.format = VK_FORMAT_R32G32_SFLOAT,
+						.offset = offsetof(struct Vertex, position),
+					},
+					[1] = {
+						.binding = 0,
+						.location = 1,
+						.format = VK_FORMAT_R32G32B32_SFLOAT,
+						.offset = offsetof(struct Vertex, color),
+					},
+				},
 			},
 			// assembly
 			.pInputAssemblyState = &(VkPipelineInputAssemblyStateCreateInfo){
@@ -1122,6 +1153,91 @@ AttrFileLocal()
 void gfx_graphics_pipeline_free(void) {
 	vkDestroyPipeline(fl_gfx.device.handle, fl_gfx.pipeline.handle, &fl_gfx_allocator);
 	vkDestroyPipelineLayout(fl_gfx.device.handle, fl_gfx.pipeline.layout, &fl_gfx_allocator);
+}
+
+// ---- ---- ---- ----
+// vertices / USER DATA
+// ---- ---- ---- ----
+
+AttrFileLocal()
+struct Vertex fl_gfx_vertices[3] = {
+	{.position = { 0.0f,  0.5f}, .color = {1.0f, 0.0f, 0.0f}},
+	{.position = {-0.5f, -0.5f}, .color = {0.0f, 1.0f, 0.0f}},
+	{.position = { 0.5f, -0.5f}, .color = {0.0f, 0.0f, 1.0f}},
+};
+
+AttrFileLocal()
+uint32_t gfx_physical_memory_find_type(uint32_t bits, VkMemoryPropertyFlags flags) {
+	VkPhysicalDeviceMemoryProperties physical_device_memory_properties;
+	vkGetPhysicalDeviceMemoryProperties(fl_gfx.device.physical.handle, &physical_device_memory_properties);
+
+	for (uint32_t i = 0; i < physical_device_memory_properties.memoryTypeCount; i++) {
+		VkMemoryType const it = physical_device_memory_properties.memoryTypes[i];
+		if ((it.propertyFlags & flags) != flags)
+			continue;
+
+		uint32_t const mask = 1 << i;
+		if (!(mask & bits))
+			continue;
+
+		return i;
+	}
+
+	AssertF(false, "can't find memory property with bits %#b and flags %#b\n", bits, flags);
+	return 0;
+}
+
+AttrFileLocal()
+void gfx_vertex_buffer_init(void) {
+	size_t const input_data_size = sizeof(fl_gfx_vertices);
+	vkCreateBuffer(
+		fl_gfx.device.handle,
+		&(VkBufferCreateInfo){
+			.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+			.size = input_data_size,
+			.usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+			.sharingMode = VK_SHARING_MODE_EXCLUSIVE,
+		},
+		&fl_gfx_allocator,
+		&fl_gfx.vertex_buffer
+	);
+
+	VkMemoryRequirements memory_requirements;
+	vkGetBufferMemoryRequirements(fl_gfx.device.handle, fl_gfx.vertex_buffer, &memory_requirements);
+
+	VkPhysicalDeviceMemoryProperties physical_device_memory_properties;
+	vkGetPhysicalDeviceMemoryProperties(fl_gfx.device.physical.handle, &physical_device_memory_properties);
+
+	VkMemoryMapFlags const required_flags
+		= VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT
+		| VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
+	vkAllocateMemory(
+		fl_gfx.device.handle,
+		&(VkMemoryAllocateInfo){
+			.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
+			.allocationSize = memory_requirements.size,
+			.memoryTypeIndex = gfx_physical_memory_find_type(
+				memory_requirements.memoryTypeBits,
+				required_flags
+			),
+		},
+		&fl_gfx_allocator,
+		&fl_gfx.vertex_buffer_memory
+	);
+
+	VkDeviceSize const memory_offset = 0;
+	vkBindBufferMemory(fl_gfx.device.handle, fl_gfx.vertex_buffer, fl_gfx.vertex_buffer_memory, 0);
+
+	void * memory_pointer;
+	vkMapMemory(fl_gfx.device.handle, fl_gfx.vertex_buffer_memory, memory_offset, input_data_size, 0, &memory_pointer);
+	mem_copy(fl_gfx_vertices, memory_pointer, input_data_size);
+	vkUnmapMemory(fl_gfx.device.handle, fl_gfx.vertex_buffer_memory);
+}
+
+AttrFileLocal()
+void gfx_vertex_buffer_free(void) {
+	vkFreeMemory(fl_gfx.device.handle, fl_gfx.vertex_buffer_memory, &fl_gfx_allocator);
+	vkDestroyBuffer(fl_gfx.device.handle, fl_gfx.vertex_buffer, &fl_gfx_allocator);
 }
 
 // ---- ---- ---- ----
@@ -1218,6 +1334,7 @@ void gfx_init(void) {
 				gfx_render_pass_init();
 					gfx_swapchain_init(VK_NULL_HANDLE);
 					gfx_graphics_pipeline_init();
+				gfx_vertex_buffer_init();
 }
 
 void gfx_free(void) {
@@ -1227,6 +1344,7 @@ void gfx_free(void) {
 	gfx_synchronization_free();
 	gfx_command_pool_free();
 	gfx_graphics_pipeline_free();
+	gfx_vertex_buffer_free();
 	gfx_render_pass_free();
 
 	gfx_swapchain_free(fl_gfx.swapchain);
@@ -1321,7 +1439,10 @@ void gfx_tick(void) {
 	vkCmdSetScissor(command_buffer, 0, 1, &(VkRect2D){
 		.extent = fl_gfx.swapchain.extent,
 	});
-	vkCmdDraw(command_buffer, 3, 1, 0, 0);
+
+	vkCmdBindVertexBuffers(command_buffer, 0, 1, &fl_gfx.vertex_buffer, (VkDeviceSize[]){0});
+
+	vkCmdDraw(command_buffer, ArrayCount(fl_gfx_vertices), 1, 0, 0);
 
 	vkCmdEndRenderPass(command_buffer);
 	vkEndCommandBuffer(command_buffer);
