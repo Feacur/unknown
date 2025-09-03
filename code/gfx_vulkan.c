@@ -344,7 +344,9 @@ struct GFX {
 	} pipeline;
 	// vertices / USER DATA
 	VkBuffer vertex_buffer;
+	VkBuffer index_buffer;
 	VkDeviceMemory vertex_buffer_memory;
+	VkDeviceMemory index_buffer_memory;
 } fl_gfx;
 
 AttrFileLocal()
@@ -1352,10 +1354,17 @@ void gfx_graphics_pipeline_free(void) {
 // ---- ---- ---- ----
 
 AttrFileLocal()
-struct Vertex fl_gfx_vertices[3] = {
-	{.position = { 0.0f,  0.5f}, .color = {1.0f, 0.0f, 0.0f}},
-	{.position = {-0.5f, -0.5f}, .color = {0.0f, 1.0f, 0.0f}},
-	{.position = { 0.5f, -0.5f}, .color = {0.0f, 0.0f, 1.0f}},
+struct Vertex fl_gfx_vertices[] = {
+	{.position = {-0.5f, -0.5f}, .color = {1.0f, 0.0f, 0.0f}},
+	{.position = { 0.5f, -0.5f}, .color = {0.0f, 1.0f, 0.0f}},
+	{.position = { 0.5f,  0.5f}, .color = {0.0f, 0.0f, 1.0f}},
+	{.position = {-0.5f,  0.5f}, .color = {1.0f, 1.0f, 1.0f}},
+};
+
+AttrFileLocal()
+uint16_t fl_gfx_indices[] = {
+	0, 1, 2,
+	2, 3, 0,
 };
 
 AttrFileLocal()
@@ -1461,42 +1470,53 @@ void gfx_buffer_copy(VkBuffer source, VkBuffer target, VkDeviceSize size) {
 }
 
 AttrFileLocal()
-void gfx_vertex_buffer_init(void) {
-	size_t const input_data_size = sizeof(fl_gfx_vertices);
-
+void gfx_buffer_create_upload(
+	VkBufferUsageFlagBits usage, VkDeviceSize size, void * data,
+	VkBuffer * out_buffer, VkDeviceMemory * out_buffer_memory
+) {
 	// @todo might be better to use a common allocator for this
 	VkBuffer staging_buffer;
 	VkDeviceMemory staging_buffer_memory;
 	gfx_buffer_create(
-		input_data_size,
+		size,
 		VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-		VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT
-		| VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+		VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
 		&staging_buffer, &staging_buffer_memory
 	);
 
 	void * staging_memory_pointer;
 	VkDeviceSize const memory_offset = 0;
-	vkMapMemory(fl_gfx.device.handle, staging_buffer_memory, memory_offset, input_data_size, 0, &staging_memory_pointer);
-	mem_copy(fl_gfx_vertices, staging_memory_pointer, input_data_size);
+	vkMapMemory(fl_gfx.device.handle, staging_buffer_memory, memory_offset, size, 0, &staging_memory_pointer);
+	mem_copy(data, staging_memory_pointer, size);
 	vkUnmapMemory(fl_gfx.device.handle, staging_buffer_memory);
 
 	gfx_buffer_create(
-		input_data_size,
-		VK_BUFFER_USAGE_VERTEX_BUFFER_BIT
-		| VK_BUFFER_USAGE_TRANSFER_DST_BIT,
-		VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT
-		| VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-		&fl_gfx.vertex_buffer, &fl_gfx.vertex_buffer_memory
+		size,
+		(VkBufferUsageFlags)usage | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+		VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+		out_buffer, out_buffer_memory
 	);
 
-	gfx_buffer_copy(staging_buffer, fl_gfx.vertex_buffer, input_data_size);
+	gfx_buffer_copy(staging_buffer, *out_buffer, size);
 	gfx_buffer_destroy(staging_buffer, staging_buffer_memory);
+}
+
+AttrFileLocal()
+void gfx_vertex_buffer_init(void) {
+	gfx_buffer_create_upload(
+		VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, sizeof(fl_gfx_vertices), fl_gfx_vertices,
+		&fl_gfx.vertex_buffer, &fl_gfx.vertex_buffer_memory
+	);
+	gfx_buffer_create_upload(
+		VK_BUFFER_USAGE_INDEX_BUFFER_BIT, sizeof(fl_gfx_indices), fl_gfx_indices,
+		&fl_gfx.index_buffer, &fl_gfx.index_buffer_memory
+	);
 }
 
 AttrFileLocal()
 void gfx_vertex_buffer_free(void) {
 	gfx_buffer_destroy(fl_gfx.vertex_buffer, fl_gfx.vertex_buffer_memory);
+	gfx_buffer_destroy(fl_gfx.index_buffer, fl_gfx.index_buffer_memory);
 }
 
 // ---- ---- ---- ----
@@ -1620,8 +1640,8 @@ void gfx_tick(void) {
 	});
 
 	vkCmdBindVertexBuffers(command_buffer, 0, 1, &fl_gfx.vertex_buffer, (VkDeviceSize[]){0});
-
-	vkCmdDraw(command_buffer, ArrayCount(fl_gfx_vertices), 1, 0, 0);
+	vkCmdBindIndexBuffer(command_buffer, fl_gfx.index_buffer, 0, VK_INDEX_TYPE_UINT16);
+	vkCmdDrawIndexed(command_buffer, ArrayCount(fl_gfx_indices), 1, 0, 0, 0);
 
 	vkCmdEndRenderPass(command_buffer);
 	vkEndCommandBuffer(command_buffer);
