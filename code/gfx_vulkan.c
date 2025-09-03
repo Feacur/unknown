@@ -16,6 +16,8 @@ matrices are colum-major style
   result = matrix x vector
 */
 
+#define GFX_NON_SRGB 0
+#define GFX_NON_VSYNC 0
 #define GFX_FRAMES_IN_FLIGHT 2
 #define GFX_DEFINE_PROC(name) PFN_ ## name name = (PFN_ ## name)gfx_get_instance_proc(#name)
 #define GFX_ENABLE_DEBUG (BUILD_DEBUG == BUILD_DEBUG_ENABLE)
@@ -693,8 +695,10 @@ void gfx_device_init(void) {
 
 	VkFormat const surface_format_preferences[] = {
 		// @note RivaTuner Statistics Server doesn't work great with sRGB formats
-		// VK_FORMAT_R8G8B8A8_UNORM,
-		// VK_FORMAT_B8G8R8A8_UNORM,
+		#if GFX_NON_SRGB
+		VK_FORMAT_R8G8B8A8_UNORM,
+		VK_FORMAT_B8G8R8A8_UNORM,
+		#endif
 		VK_FORMAT_R8G8B8A8_SRGB,
 		VK_FORMAT_B8G8R8A8_SRGB,
 	};
@@ -719,6 +723,9 @@ void gfx_device_init(void) {
 	fl_gfx.device.physical.present_mode = VK_PRESENT_MODE_MAX_ENUM_KHR;
 
 	VkPresentModeKHR const present_mode_preferences[] = {
+		#if GFX_NON_VSYNC
+		VK_PRESENT_MODE_IMMEDIATE_KHR,
+		#endif
 		VK_PRESENT_MODE_MAILBOX_KHR,
 		VK_PRESENT_MODE_FIFO_KHR,
 	};
@@ -1572,6 +1579,8 @@ void gfx_notify_surface_resized(void) {
 	fl_gfx.swapchain.out_of_date_or_suboptimal = true;
 }
 
+#undef GFX_NON_SRGB
+#undef GFX_NON_VSYNC
 #undef GFX_FRAMES_IN_FLIGHT
 #undef GFX_DEFINE_PROC
 #undef GFX_ENABLE_DEBUG
