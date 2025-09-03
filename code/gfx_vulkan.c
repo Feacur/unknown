@@ -638,10 +638,13 @@ void gfx_device_init(void) {
 			vkGetPhysicalDeviceSurfaceSupportKHR(handle, qfamily_i, fl_gfx.surface, qfamily_surface_support + qfamily_i);
 
 		// -- prefer a single universal queue but still try to come up with something otherwise
+		VkQueueFlags const required_flags
+			= VK_QUEUE_GRAPHICS_BIT
+			| VK_QUEUE_TRANSFER_BIT; // @note optional for graphics and compute
 		for (uint32_t qfamily_i = 0; qfamily_i < qfamily_properties_count; qfamily_i++) {
 			VkQueueFamilyProperties const it = qfamily_properties[qfamily_i];
 			VkBool32 const surface_support = qfamily_surface_support[qfamily_i];
-			if ((it.queueFlags & VK_QUEUE_GRAPHICS_BIT) && surface_support) {
+			if (((it.queueFlags & required_flags) == required_flags) && surface_support) {
 				qfamily_graphics_choices[device_i] = qfamily_i + 1;
 				qfamily_surface_choices[device_i] = qfamily_i + 1;
 				break;
@@ -649,7 +652,7 @@ void gfx_device_init(void) {
 		}
 		for (uint32_t qfamily_i = 0; qfamily_i < qfamily_properties_count && !qfamily_graphics_choices[device_i]; qfamily_i++) {
 			VkQueueFamilyProperties const it = qfamily_properties[qfamily_i];
-			if (it.queueFlags & VK_QUEUE_GRAPHICS_BIT)
+			if ((it.queueFlags & required_flags) == required_flags)
 				qfamily_graphics_choices[device_i] = qfamily_i + 1;
 		}
 		for (uint32_t qfamily_i = 0; qfamily_i < qfamily_properties_count && !qfamily_surface_choices[device_i]; qfamily_i++) {
@@ -1188,29 +1191,28 @@ uint32_t gfx_physical_memory_find_type(uint32_t bits, VkMemoryPropertyFlags flag
 }
 
 AttrFileLocal()
-void gfx_vertex_buffer_init(void) {
-	size_t const input_data_size = sizeof(fl_gfx_vertices);
+void gfx_buffer_create(
+	VkDeviceSize size, VkBufferUsageFlags usage_flags, VkMemoryPropertyFlags property_flags,
+	VkBuffer * out_buffer, VkDeviceMemory * out_buffer_memory
+) {
 	vkCreateBuffer(
 		fl_gfx.device.handle,
 		&(VkBufferCreateInfo){
 			.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
-			.size = input_data_size,
-			.usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+			.size = size,
+			.usage = usage_flags,
 			.sharingMode = VK_SHARING_MODE_EXCLUSIVE,
 		},
 		&fl_gfx_allocator,
-		&fl_gfx.vertex_buffer
+		out_buffer
 	);
 
 	VkMemoryRequirements memory_requirements;
-	vkGetBufferMemoryRequirements(fl_gfx.device.handle, fl_gfx.vertex_buffer, &memory_requirements);
+	vkGetBufferMemoryRequirements(fl_gfx.device.handle, *out_buffer, &memory_requirements);
 
 	VkPhysicalDeviceMemoryProperties physical_device_memory_properties;
 	vkGetPhysicalDeviceMemoryProperties(fl_gfx.device.physical.handle, &physical_device_memory_properties);
 
-	VkMemoryMapFlags const required_flags
-		= VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT
-		| VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
 	vkAllocateMemory(
 		fl_gfx.device.handle,
 		&(VkMemoryAllocateInfo){
@@ -1218,26 +1220,95 @@ void gfx_vertex_buffer_init(void) {
 			.allocationSize = memory_requirements.size,
 			.memoryTypeIndex = gfx_physical_memory_find_type(
 				memory_requirements.memoryTypeBits,
-				required_flags
+				property_flags
 			),
 		},
 		&fl_gfx_allocator,
-		&fl_gfx.vertex_buffer_memory
+		out_buffer_memory
 	);
 
 	VkDeviceSize const memory_offset = 0;
-	vkBindBufferMemory(fl_gfx.device.handle, fl_gfx.vertex_buffer, fl_gfx.vertex_buffer_memory, 0);
+	vkBindBufferMemory(fl_gfx.device.handle, *out_buffer, *out_buffer_memory, 0);
+}
 
-	void * memory_pointer;
-	vkMapMemory(fl_gfx.device.handle, fl_gfx.vertex_buffer_memory, memory_offset, input_data_size, 0, &memory_pointer);
-	mem_copy(fl_gfx_vertices, memory_pointer, input_data_size);
-	vkUnmapMemory(fl_gfx.device.handle, fl_gfx.vertex_buffer_memory);
+AttrFileLocal()
+void gfx_buffer_destroy(VkBuffer buffer, VkDeviceMemory buffer_memory) {
+	vkFreeMemory(fl_gfx.device.handle, buffer_memory, &fl_gfx_allocator);
+	vkDestroyBuffer(fl_gfx.device.handle, buffer, &fl_gfx_allocator);
+}
+
+AttrFileLocal()
+void gfx_buffer_copy(VkBuffer source, VkBuffer target, VkDeviceSize size) {
+	VkCommandBuffer command_buffer;
+	vkAllocateCommandBuffers(
+		fl_gfx.device.handle,
+		&(VkCommandBufferAllocateInfo){
+			.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
+			.commandPool = fl_gfx.command_pool,
+			.commandBufferCount = 1,
+		},
+		&command_buffer
+	);
+
+	vkBeginCommandBuffer(command_buffer, &(VkCommandBufferBeginInfo){
+		.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
+		.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT,
+	});
+
+	vkCmdCopyBuffer(command_buffer, source, target, 1, &(VkBufferCopy){
+		.size = size,
+	});
+
+	vkEndCommandBuffer(command_buffer);
+
+	vkQueueSubmit(fl_gfx.device.main_queue, 1, &(VkSubmitInfo){
+		.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
+		.commandBufferCount = 1,
+		.pCommandBuffers = &command_buffer,
+	}, VK_NULL_HANDLE);
+
+	vkQueueWaitIdle(fl_gfx.device.main_queue);
+
+	vkFreeCommandBuffers(fl_gfx.device.handle, fl_gfx.command_pool, 1, &command_buffer);
+}
+
+AttrFileLocal()
+void gfx_vertex_buffer_init(void) {
+	size_t const input_data_size = sizeof(fl_gfx_vertices);
+
+	// @todo might be better to use a common allocator for this
+	VkBuffer staging_buffer;
+	VkDeviceMemory staging_buffer_memory;
+	gfx_buffer_create(
+		input_data_size,
+		VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+		VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT
+		| VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+		&staging_buffer, &staging_buffer_memory
+	);
+
+	void * staging_memory_pointer;
+	VkDeviceSize const memory_offset = 0;
+	vkMapMemory(fl_gfx.device.handle, staging_buffer_memory, memory_offset, input_data_size, 0, &staging_memory_pointer);
+	mem_copy(fl_gfx_vertices, staging_memory_pointer, input_data_size);
+	vkUnmapMemory(fl_gfx.device.handle, staging_buffer_memory);
+
+	gfx_buffer_create(
+		input_data_size,
+		VK_BUFFER_USAGE_VERTEX_BUFFER_BIT
+		| VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+		VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT
+		| VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+		&fl_gfx.vertex_buffer, &fl_gfx.vertex_buffer_memory
+	);
+
+	gfx_buffer_copy(staging_buffer, fl_gfx.vertex_buffer, input_data_size);
+	gfx_buffer_destroy(staging_buffer, staging_buffer_memory);
 }
 
 AttrFileLocal()
 void gfx_vertex_buffer_free(void) {
-	vkFreeMemory(fl_gfx.device.handle, fl_gfx.vertex_buffer_memory, &fl_gfx_allocator);
-	vkDestroyBuffer(fl_gfx.device.handle, fl_gfx.vertex_buffer, &fl_gfx_allocator);
+	gfx_buffer_destroy(fl_gfx.vertex_buffer, fl_gfx.vertex_buffer_memory);
 }
 
 // ---- ---- ---- ----
