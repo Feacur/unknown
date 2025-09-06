@@ -20,6 +20,12 @@ matrices are colum-major style
 #define GFX_DEFINE_PROC(name) PFN_ ## name name = (PFN_ ## name)gfx_get_instance_proc(#name)
 #define GFX_ENABLE_DEBUG (BUILD_DEBUG == BUILD_DEBUG_ENABLE)
 
+#define GFX_ALIGN32_SCALAR sizeof(f32)
+#define GFX_ALIGN32_VEC2 (GFX_ALIGN32_SCALAR * 2)
+#define GFX_ALIGN32_VEC3 (GFX_ALIGN32_SCALAR * 4)
+#define GFX_ALIGN32_VEC4 (GFX_ALIGN32_SCALAR * 4)
+#define GFX_ALIGN32_MAT4 GFX_ALIGN32_VEC4
+
 // @note vulkan expects a 64 bit architecture at least
 AssertStatic(sizeof(size_t) >= sizeof(uint64_t));
 AssertStatic(GFX_FRAMES_IN_FLIGHT >= 1);
@@ -307,6 +313,7 @@ struct GFX {
 			uint32_t main_qfamily_index;
 			uint32_t present_qfamily_index;
 			uint32_t transfer_qfamily_index;
+			VkPhysicalDeviceProperties properties;
 			VkSurfaceFormatKHR surface_format;
 			VkPresentModeKHR present_mode;
 		} physical;
@@ -337,18 +344,28 @@ struct GFX {
 		VkFramebuffer  * framebuffers;
 		bool             out_of_date_or_suboptimal;
 	} swapchain;
+	// dpool
+	VkDescriptorPool descriptor_pool;
 	// pipeline / USER DATA
 	struct GFX_Pipeline {
-		VkPipelineLayout layout;
 		VkPipeline       handle;
+		VkPipelineLayout layout;
+		struct GFX_Descriptor_Set {
+			VkDescriptorSet       handles[GFX_FRAMES_IN_FLIGHT];
+			VkDescriptorSetLayout layout;
+		} descriptor_set;
 	} pipeline;
-	// vertices / USER DATA
-	VkBuffer model_buffer;
+	// uniforms
+	VkDeviceMemory udata_memory;
+	VkBuffer       udata_buffer;
+	u8 * udata_maps[GFX_FRAMES_IN_FLIGHT];
+	// model / USER DATA
 	VkDeviceMemory model_memory;
-	VkDeviceSize model_vertices_offset;
-	VkDeviceSize model_indices_offset;
-	uint32_t model_indices_count;
+	VkBuffer       model_buffer;
+	VkDeviceSize model_offset_vertex;
+	VkDeviceSize model_offset_index;
 	VkIndexType model_index_type;
+	uint32_t    model_index_count;
 } fl_gfx;
 
 AttrFileLocal()
@@ -761,7 +778,8 @@ void gfx_device_init(void) {
 		? physical_device_choice - 1
 		: 0;
 
-	fl_gfx.device.physical.handle = physical_devices[physical_device_index];
+	fl_gfx.device.physical.handle     = physical_devices[physical_device_index];
+	fl_gfx.device.physical.properties = physical_device_properties[physical_device_index];
 	fl_gfx.device.physical.main_qfamily_index     = main_qfamily_choices[physical_device_index] - 1;
 	fl_gfx.device.physical.present_qfamily_index  = present_qfamily_choices[physical_device_index] - 1;
 	fl_gfx.device.physical.transfer_qfamily_index = transfer_qfamily_choices[physical_device_index] - 1;
@@ -1183,6 +1201,140 @@ void gfx_swapchain_recreate(void) {
 	gfx_swapchain_free(previous);
 }
 
+AttrFileLocal()
+uint32_t gfx_physical_memory_find_type(uint32_t bits, VkMemoryPropertyFlags flags) {
+	VkPhysicalDeviceMemoryProperties physical_device_memory_properties;
+	vkGetPhysicalDeviceMemoryProperties(fl_gfx.device.physical.handle, &physical_device_memory_properties);
+
+	for (uint32_t i = 0; i < physical_device_memory_properties.memoryTypeCount; i++) {
+		VkMemoryType const it = physical_device_memory_properties.memoryTypes[i];
+		if ((it.propertyFlags & flags) != flags)
+			continue;
+
+		uint32_t const mask = 1 << i;
+		if (!(mask & bits))
+			continue;
+
+		return i;
+	}
+
+	AssertF(false, "can't find memory property with bits %#b and flags %#b\n", bits, flags);
+	return 0;
+}
+
+// ---- ---- ---- ----
+// buffer
+// ---- ---- ---- ----
+
+AttrFileLocal()
+void gfx_buffer_create(
+	VkDeviceSize size, VkBufferUsageFlags usage_flags, VkMemoryPropertyFlags property_flags,
+	VkBuffer * out_buffer, VkDeviceMemory * out_buffer_memory
+) {
+	uint32_t queue_families_buffer[2];
+	arr32 queue_families = {
+		.capacity = ArrayCount(queue_families_buffer),
+		.buffer = queue_families_buffer,
+	};
+	arr32_append_unique(&queue_families, fl_gfx.device.physical.main_qfamily_index);
+	arr32_append_unique(&queue_families, fl_gfx.device.physical.transfer_qfamily_index);
+
+	vkCreateBuffer(
+		fl_gfx.device.handle,
+		&(VkBufferCreateInfo){
+			.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+			.size = size,
+			.usage = usage_flags,
+			.sharingMode = queue_families.count >= 2
+				? VK_SHARING_MODE_CONCURRENT
+				: VK_SHARING_MODE_EXCLUSIVE,
+			.queueFamilyIndexCount = (uint32_t)queue_families.count,
+			.pQueueFamilyIndices = queue_families.buffer,
+		},
+		&fl_gfx_allocator,
+		out_buffer
+	);
+
+	VkMemoryRequirements memory_requirements;
+	vkGetBufferMemoryRequirements(fl_gfx.device.handle, *out_buffer, &memory_requirements);
+
+	VkPhysicalDeviceMemoryProperties physical_device_memory_properties;
+	vkGetPhysicalDeviceMemoryProperties(fl_gfx.device.physical.handle, &physical_device_memory_properties);
+
+	vkAllocateMemory(
+		fl_gfx.device.handle,
+		&(VkMemoryAllocateInfo){
+			.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
+			.allocationSize = memory_requirements.size,
+			.memoryTypeIndex = gfx_physical_memory_find_type(
+				memory_requirements.memoryTypeBits,
+				property_flags
+			),
+		},
+		&fl_gfx_allocator,
+		out_buffer_memory
+	);
+
+	VkDeviceSize const memory_offset = 0;
+	vkBindBufferMemory(fl_gfx.device.handle, *out_buffer, *out_buffer_memory, 0);
+}
+
+AttrFileLocal()
+void gfx_buffer_destroy(VkBuffer buffer, VkDeviceMemory buffer_memory) {
+	vkFreeMemory(fl_gfx.device.handle, buffer_memory, &fl_gfx_allocator);
+	vkDestroyBuffer(fl_gfx.device.handle, buffer, &fl_gfx_allocator);
+}
+
+AttrFileLocal()
+void gfx_buffer_copy(VkBuffer source, VkBuffer target, VkDeviceSize size) {
+	vkBeginCommandBuffer(fl_gfx.transfer_command_buffer, &(VkCommandBufferBeginInfo){
+		.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
+		.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT,
+	});
+
+	vkCmdCopyBuffer(fl_gfx.transfer_command_buffer, source, target, 1, &(VkBufferCopy){
+		.size = size,
+	});
+
+	vkEndCommandBuffer(fl_gfx.transfer_command_buffer);
+
+	vkQueueSubmit(fl_gfx.device.transfer_queue, 1, &(VkSubmitInfo){
+		.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
+		.commandBufferCount = 1,
+		.pCommandBuffers = &fl_gfx.transfer_command_buffer,
+	}, VK_NULL_HANDLE);
+
+	vkQueueWaitIdle(fl_gfx.device.transfer_queue);
+}
+
+// ---- ---- ---- ----
+// dpool
+// ---- ---- ---- ----
+
+AttrFileLocal()
+void gfx_dpool_init(void) {
+	vkCreateDescriptorPool(
+		fl_gfx.device.handle,
+		&(VkDescriptorPoolCreateInfo){
+			.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
+			.maxSets = GFX_FRAMES_IN_FLIGHT,
+			.poolSizeCount = 1,
+			.pPoolSizes = &(VkDescriptorPoolSize){
+				.type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+				.descriptorCount = GFX_FRAMES_IN_FLIGHT,
+			},
+			.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT,
+		},
+		&fl_gfx_allocator,
+		&fl_gfx.descriptor_pool
+	);
+}
+
+AttrFileLocal()
+void gfx_dpool_free(void) {
+	vkDestroyDescriptorPool(fl_gfx.device.handle, fl_gfx.descriptor_pool, &fl_gfx_allocator);
+}
+
 // ---- ---- ---- ----
 // pipeline / USER DATA
 // ---- ---- ---- ----
@@ -1232,11 +1384,30 @@ void gfx_graphics_pipeline_init(void) {
 		},
 	};
 
+	// -- create descriptor set layout
+	vkCreateDescriptorSetLayout(
+		fl_gfx.device.handle,
+		&(VkDescriptorSetLayoutCreateInfo){
+			.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
+			.bindingCount = 1,
+			.pBindings = &(VkDescriptorSetLayoutBinding){
+				.binding = 0,
+				.descriptorCount = 1,
+				.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+				.stageFlags = VK_SHADER_STAGE_VERTEX_BIT,
+			},
+		},
+		&fl_gfx_allocator,
+		&fl_gfx.pipeline.descriptor_set.layout
+	);
+
 	// -- create pipeline layout
 	vkCreatePipelineLayout(
 		fl_gfx.device.handle,
 		&(VkPipelineLayoutCreateInfo){
 			.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
+			.setLayoutCount = 1,
+			.pSetLayouts = &fl_gfx.pipeline.descriptor_set.layout,
 		},
 		&fl_gfx_allocator,
 		&fl_gfx.pipeline.layout
@@ -1343,20 +1514,96 @@ void gfx_graphics_pipeline_init(void) {
 
 	for (uint32_t i = 0, count = ArrayCount(shader_stages); i < count; i++)
 		vkDestroyShaderModule(fl_gfx.device.handle, shader_stages[i].module, &fl_gfx_allocator);
+
+	// -- create descriptor sets
+	VkDescriptorSetLayout set_layouts[GFX_FRAMES_IN_FLIGHT];
+	for (uint32_t i = 0; i < GFX_FRAMES_IN_FLIGHT; i++)
+		set_layouts[i] = fl_gfx.pipeline.descriptor_set.layout;
+
+	vkAllocateDescriptorSets(
+		fl_gfx.device.handle,
+		&(VkDescriptorSetAllocateInfo){
+			.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
+			.descriptorPool = fl_gfx.descriptor_pool,
+			.descriptorSetCount = GFX_FRAMES_IN_FLIGHT,
+			.pSetLayouts = set_layouts,
+		},
+		fl_gfx.pipeline.descriptor_set.handles
+	);
 }
 
 AttrFileLocal()
 void gfx_graphics_pipeline_free(void) {
 	vkDestroyPipeline(fl_gfx.device.handle, fl_gfx.pipeline.handle, &fl_gfx_allocator);
 	vkDestroyPipelineLayout(fl_gfx.device.handle, fl_gfx.pipeline.layout, &fl_gfx_allocator);
+	vkDestroyDescriptorSetLayout(fl_gfx.device.handle, fl_gfx.pipeline.descriptor_set.layout, &fl_gfx_allocator);
+	vkFreeDescriptorSets(fl_gfx.device.handle, fl_gfx.descriptor_pool, GFX_FRAMES_IN_FLIGHT, fl_gfx.pipeline.descriptor_set.handles);
 }
 
 // ---- ---- ---- ----
-// vertices / USER DATA
+// uniforms / USER DATA
+// ---- ---- ---- ----
+
+struct UData {
+	mat4 model;
+	mat4 view;
+	mat4 projection;
+};
+AssertAlign(struct UData, model,      GFX_ALIGN32_MAT4);
+AssertAlign(struct UData, view,       GFX_ALIGN32_MAT4);
+AssertAlign(struct UData, projection, GFX_ALIGN32_MAT4);
+
+AttrFileLocal()
+void gfx_udata_init(void) {
+	size_t const align = fl_gfx.device.physical.properties.limits.minUniformBufferOffsetAlignment;
+	size_t const entry_stride = align_size(sizeof(struct UData), align);
+	size_t const total_size = entry_stride * GFX_FRAMES_IN_FLIGHT;
+	gfx_buffer_create(
+		total_size,
+		VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+		VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+		&fl_gfx.udata_buffer, &fl_gfx.udata_memory
+	);
+
+	void * target;
+	vkMapMemory(fl_gfx.device.handle, fl_gfx.udata_memory, 0, total_size, 0, &target);
+	for (uint32_t i = 0; i < GFX_FRAMES_IN_FLIGHT; i++)
+		fl_gfx.udata_maps[i] = (u8 *)target + entry_stride * i;
+
+	for (uint32_t i = 0; i < GFX_FRAMES_IN_FLIGHT; i++)
+		vkUpdateDescriptorSets(
+			fl_gfx.device.handle,
+			1,
+			&(VkWriteDescriptorSet){
+				.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+				.dstSet = fl_gfx.pipeline.descriptor_set.handles[i],
+				.dstBinding = 0,
+				.dstArrayElement = 0,
+				.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+				.descriptorCount = 1,
+				.pBufferInfo = &(VkDescriptorBufferInfo){
+					.buffer = fl_gfx.udata_buffer,
+					.offset = entry_stride * i,
+					.range = sizeof(struct UData),
+				},
+			},
+			0,
+			NULL
+		);
+}
+
+AttrFileLocal()
+void gfx_udata_free(void) {
+	vkUnmapMemory(fl_gfx.device.handle, fl_gfx.udata_memory);
+	gfx_buffer_destroy(fl_gfx.udata_buffer, fl_gfx.udata_memory);
+}
+
+// ---- ---- ---- ----
+// model / USER DATA
 // ---- ---- ---- ----
 
 AttrFileLocal()
-struct Vertex fl_gfx_vertices[] = {
+struct Vertex const fl_gfx_vertices[] = {
 	{.position = {-0.5f, -0.5f}, .color = {1.0f, 0.0f, 0.0f}},
 	{.position = { 0.5f, -0.5f}, .color = {0.0f, 1.0f, 0.0f}},
 	{.position = { 0.5f,  0.5f}, .color = {0.0f, 0.0f, 1.0f}},
@@ -1370,110 +1617,10 @@ uint16_t fl_gfx_indices[] = {
 };
 
 AttrFileLocal()
-uint32_t gfx_physical_memory_find_type(uint32_t bits, VkMemoryPropertyFlags flags) {
-	VkPhysicalDeviceMemoryProperties physical_device_memory_properties;
-	vkGetPhysicalDeviceMemoryProperties(fl_gfx.device.physical.handle, &physical_device_memory_properties);
-
-	for (uint32_t i = 0; i < physical_device_memory_properties.memoryTypeCount; i++) {
-		VkMemoryType const it = physical_device_memory_properties.memoryTypes[i];
-		if ((it.propertyFlags & flags) != flags)
-			continue;
-
-		uint32_t const mask = 1 << i;
-		if (!(mask & bits))
-			continue;
-
-		return i;
-	}
-
-	AssertF(false, "can't find memory property with bits %#b and flags %#b\n", bits, flags);
-	return 0;
-}
-
-AttrFileLocal()
-void gfx_buffer_create(
-	VkDeviceSize size, VkBufferUsageFlags usage_flags, VkMemoryPropertyFlags property_flags,
-	VkBuffer * out_buffer, VkDeviceMemory * out_buffer_memory
-) {
-	uint32_t queue_families_buffer[2];
-	arr32 queue_families = {
-		.capacity = ArrayCount(queue_families_buffer),
-		.buffer = queue_families_buffer,
-	};
-	arr32_append_unique(&queue_families, fl_gfx.device.physical.main_qfamily_index);
-	arr32_append_unique(&queue_families, fl_gfx.device.physical.transfer_qfamily_index);
-
-	vkCreateBuffer(
-		fl_gfx.device.handle,
-		&(VkBufferCreateInfo){
-			.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
-			.size = size,
-			.usage = usage_flags,
-			.sharingMode = queue_families.count >= 2
-				? VK_SHARING_MODE_CONCURRENT
-				: VK_SHARING_MODE_EXCLUSIVE,
-			.queueFamilyIndexCount = (uint32_t)queue_families.count,
-			.pQueueFamilyIndices = queue_families.buffer,
-		},
-		&fl_gfx_allocator,
-		out_buffer
-	);
-
-	VkMemoryRequirements memory_requirements;
-	vkGetBufferMemoryRequirements(fl_gfx.device.handle, *out_buffer, &memory_requirements);
-
-	VkPhysicalDeviceMemoryProperties physical_device_memory_properties;
-	vkGetPhysicalDeviceMemoryProperties(fl_gfx.device.physical.handle, &physical_device_memory_properties);
-
-	vkAllocateMemory(
-		fl_gfx.device.handle,
-		&(VkMemoryAllocateInfo){
-			.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
-			.allocationSize = memory_requirements.size,
-			.memoryTypeIndex = gfx_physical_memory_find_type(
-				memory_requirements.memoryTypeBits,
-				property_flags
-			),
-		},
-		&fl_gfx_allocator,
-		out_buffer_memory
-	);
-
-	VkDeviceSize const memory_offset = 0;
-	vkBindBufferMemory(fl_gfx.device.handle, *out_buffer, *out_buffer_memory, 0);
-}
-
-AttrFileLocal()
-void gfx_buffer_destroy(VkBuffer buffer, VkDeviceMemory buffer_memory) {
-	vkFreeMemory(fl_gfx.device.handle, buffer_memory, &fl_gfx_allocator);
-	vkDestroyBuffer(fl_gfx.device.handle, buffer, &fl_gfx_allocator);
-}
-
-AttrFileLocal()
-void gfx_buffer_copy(VkBuffer source, VkBuffer target, VkDeviceSize size) {
-	vkBeginCommandBuffer(fl_gfx.transfer_command_buffer, &(VkCommandBufferBeginInfo){
-		.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
-		.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT,
-	});
-
-	vkCmdCopyBuffer(fl_gfx.transfer_command_buffer, source, target, 1, &(VkBufferCopy){
-		.size = size,
-	});
-
-	vkEndCommandBuffer(fl_gfx.transfer_command_buffer);
-
-	vkQueueSubmit(fl_gfx.device.transfer_queue, 1, &(VkSubmitInfo){
-		.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
-		.commandBufferCount = 1,
-		.pCommandBuffers = &fl_gfx.transfer_command_buffer,
-	}, VK_NULL_HANDLE);
-
-	vkQueueWaitIdle(fl_gfx.device.transfer_queue);
-}
-
-AttrFileLocal()
 void gfx_model_init(void) {
 	VkDeviceSize const total_size = sizeof(fl_gfx_vertices) + sizeof(fl_gfx_indices);
+	fl_gfx.model_offset_vertex = 0;
+	fl_gfx.model_offset_index = sizeof(fl_gfx_vertices);
 
 	// @todo might be better to use a common allocator for this
 	VkBuffer staging_buffer;
@@ -1487,8 +1634,8 @@ void gfx_model_init(void) {
 
 	void * target;
 	vkMapMemory(fl_gfx.device.handle, staging_buffer_memory, 0, total_size, 0, &target);
-	mem_copy(fl_gfx_vertices, (u8 *)target,                           sizeof(fl_gfx_vertices));
-	mem_copy(fl_gfx_indices,  (u8 *)target + sizeof(fl_gfx_vertices), sizeof(fl_gfx_indices));
+	mem_copy(fl_gfx_vertices, (u8 *)target + fl_gfx.model_offset_vertex, sizeof(fl_gfx_vertices));
+	mem_copy(fl_gfx_indices,  (u8 *)target + fl_gfx.model_offset_index,  sizeof(fl_gfx_indices));
 	vkUnmapMemory(fl_gfx.device.handle, staging_buffer_memory);
 
 	gfx_buffer_create(
@@ -1501,9 +1648,7 @@ void gfx_model_init(void) {
 	gfx_buffer_copy(staging_buffer, fl_gfx.model_buffer, total_size);
 	gfx_buffer_destroy(staging_buffer, staging_buffer_memory);
 
-	fl_gfx.model_vertices_offset = 0;
-	fl_gfx.model_indices_offset = sizeof(fl_gfx_vertices);
-	fl_gfx.model_indices_count = ArrayCount(fl_gfx_indices);
+	fl_gfx.model_index_count = ArrayCount(fl_gfx_indices);
 	fl_gfx.model_index_type = VK_INDEX_TYPE_UINT16;
 }
 
@@ -1523,10 +1668,12 @@ void gfx_init(void) {
 			gfx_device_init();
 				gfx_synchronization_init();
 				gfx_command_pool_init();
+				gfx_dpool_init();
 				gfx_render_pass_init();
 					gfx_swapchain_init(VK_NULL_HANDLE);
 					gfx_graphics_pipeline_init();
 				gfx_model_init();
+				gfx_udata_init();
 }
 
 void gfx_free(void) {
@@ -1536,7 +1683,9 @@ void gfx_free(void) {
 	gfx_synchronization_free();
 	gfx_command_pool_free();
 	gfx_graphics_pipeline_free();
+	gfx_dpool_free();
 	gfx_model_free();
+	gfx_udata_free();
 	gfx_render_pass_free();
 
 	gfx_swapchain_free(fl_gfx.swapchain);
@@ -1632,9 +1781,34 @@ void gfx_tick(void) {
 		.extent = fl_gfx.swapchain.extent,
 	});
 
-	vkCmdBindVertexBuffers(command_buffer, 0, 1, &fl_gfx.model_buffer, &fl_gfx.model_vertices_offset);
-	vkCmdBindIndexBuffer(command_buffer, fl_gfx.model_buffer, fl_gfx.model_indices_offset, fl_gfx.model_index_type);
-	vkCmdDrawIndexed(command_buffer, fl_gfx.model_indices_count, 1, 0, 0, 0);
+	{
+		f32 const fov = PI32 / 2;
+		vec2 const vp_scale = vec2_muls(
+			(vec2){(f32)fl_gfx.swapchain.extent.height / (f32)fl_gfx.swapchain.extent.width, 1},
+			cos32(fov / 2) / sin32(fov / 2)
+		);
+		u64 const rotation_period = AsNanos(5);
+		f32 const rotation = TAU32 * (f32)(os_timer_get_nanos() % rotation_period) / (f32)rotation_period;
+		struct UData const udata = {
+			.model = mat4_transformation(vec3_0, quat_axis(vec3_z1, rotation), vec3_1),
+			.view = mat4_transformation_inverse((vec3){0, 0, -1}, quat_i, vec3_1),
+			.projection = gfx_mat4_projection(vp_scale, vec2_0, 0, 0.1f, INF32),
+		};
+		mem_copy(&udata, fl_gfx.udata_maps[frame], sizeof(udata));
+
+		vkCmdBindDescriptorSets(
+			command_buffer,
+			VK_PIPELINE_BIND_POINT_GRAPHICS,
+			fl_gfx.pipeline.layout,
+			0, 1,
+			&fl_gfx.pipeline.descriptor_set.handles[frame],
+			0, NULL
+		);
+	}
+
+	vkCmdBindVertexBuffers(command_buffer, 0, 1, &fl_gfx.model_buffer, &fl_gfx.model_offset_vertex);
+	vkCmdBindIndexBuffer(command_buffer, fl_gfx.model_buffer, fl_gfx.model_offset_index, fl_gfx.model_index_type);
+	vkCmdDrawIndexed(command_buffer, fl_gfx.model_index_count, 1, 0, 0, 0);
 
 	vkCmdEndRenderPass(command_buffer);
 	vkEndCommandBuffer(command_buffer);
@@ -1689,5 +1863,24 @@ void gfx_notify_surface_resized(void) {
 	fl_gfx.swapchain.out_of_date_or_suboptimal = true;
 }
 
+mat4 gfx_mat4_projection(
+	vec2 scale_xy, vec2 offset_xy, f32 ortho,
+	f32 view_near, f32 view_far
+) {
+	f32 const ndc_near = 0;
+	f32 const ndc_far  = 1;
+	return mat4_projection(
+		scale_xy, offset_xy, ortho,
+		view_near, view_far,
+		ndc_near, ndc_far
+	);
+}
+
 #undef GFX_DEFINE_PROC
 #undef GFX_ENABLE_DEBUG
+
+#undef GFX_ALIGN32_SCALAR
+#undef GFX_ALIGN32_VEC2
+#undef GFX_ALIGN32_VEC3
+#undef GFX_ALIGN32_VEC4
+#undef GFX_ALIGN32_MAT4
