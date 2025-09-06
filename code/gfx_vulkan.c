@@ -14,8 +14,15 @@ axes
 
 matrices are colum-major style
   result = matrix x vector
+
+reverse Z
+  use floating point buffer
+  set range [1 .. 0] or flip depth with a projection matrix
+  clear to 0 ; i.e. z-far, which means nothing changes here
+  set depth test to "greater value writes"
 */
 
+#define GFX_REVERSE_Z 0
 #define GFX_VK_NON_SRGB 0
 #define GFX_VK_NON_VSYNC 0
 #define GFX_VK_FRAMES_IN_FLIGHT 2
@@ -1199,6 +1206,12 @@ void gfx_swapchain_recreate(void) {
 // pipeline / USER DATA
 // ---- ---- ---- ----
 
+struct UData {
+	mat4 model;
+	mat4 view;
+	mat4 projection;
+};
+
 struct Vertex {
 	float position[2];
 	float color[3];
@@ -1637,8 +1650,8 @@ void gfx_tick(void) {
 		.width = (float)fl_gfx.swapchain.extent.width,
 		.height = -(float)fl_gfx.swapchain.extent.height,
 		// depth
-		.minDepth = 0,
-		.maxDepth = 1,
+		.minDepth = GFX_REVERSE_Z ? 1 : 0,
+		.maxDepth = GFX_REVERSE_Z ? 0 : 1,
 	});
 	vkCmdSetScissor(command_buffer, 0, 1, &(VkRect2D){
 		.extent = fl_gfx.swapchain.extent,
@@ -1701,6 +1714,20 @@ void gfx_notify_surface_resized(void) {
 	fl_gfx.swapchain.out_of_date_or_suboptimal = true;
 }
 
+mat4 gfx_mat4_projection(
+	vec2 scale_xy, vec2 offset_xy,
+	f32 view_near, f32 view_far, f32 ortho
+) {
+	f32 const ndc_near = 0;
+	f32 const ndc_far  = 1;
+	return mat4_projection(
+		scale_xy, offset_xy,
+		view_near, view_far, ortho,
+		ndc_near, ndc_far
+	);
+}
+
+#undef GFX_REVERSE_Z
 #undef GFX_VK_NON_SRGB
 #undef GFX_VK_NON_VSYNC
 #undef GFX_VK_FRAMES_IN_FLIGHT
