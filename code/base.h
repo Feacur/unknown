@@ -103,6 +103,7 @@ struct Vector3_F32 {
 	f32 x, y, z;
 };
 
+typedef struct Vector4_F32 quat;
 typedef struct Vector4_F32 vec4;
 struct Vector4_F32 {
 	f32 x, y, z, w;
@@ -156,6 +157,72 @@ bool str_equals(char const * v1, char const * v2);
 size_t align_size(size_t value, size_t align);
 
 u64 mul_div_u64(u64 value, u64 mul, u64 div);
+
+// ---- ---- ---- ----
+// functions, f32
+// ---- ---- ---- ----
+
+bool inf32(f32 value);
+bool nan32(f32 value);
+
+f32 sin32(f32 value);
+f32 cos32(f32 value);
+f32 sqrt32(f32 value);
+
+f32 round32(f32 value);
+f32 trunc32(f32 value);
+f32 floor32(f32 value);
+f32 ceil32(f32 value);
+
+f32 exp2_32(f32 value);
+f32 expe_32(f32 value);
+f32 log2_32(f32 value);
+f32 loge_32(f32 value);
+f32 log10_32(f32 value);
+
+f32 pow32(f32 base, f32 exp);
+f32 ldexp32(f32 mul, s32 exp); // @note `ret == mul * (2^exp)`
+
+f32 lerp32(f32 v1, f32 v2, f32 t);
+f32 lerp32_stable(f32 v1, f32 v2, f32 t);
+f32 lerp32_inverse(f32 v1, f32 v2, f32 value);
+
+f32 eerp32(f32 v1, f32 v2, f32 t);
+f32 eerp32_stable(f32 v1, f32 v2, f32 t);
+f32 eerp32_inverse(f32 v1, f32 v2, f32 value);
+
+// ---- ---- ---- ----
+// functions, f64
+// ---- ---- ---- ----
+
+bool inf64(f64 value);
+bool nan64(f64 value);
+
+f64 sin64(f64 value);
+f64 cos64(f64 value);
+f64 sqrt64(f64 value);
+
+f64 round64(f64 value);
+f64 trunc64(f64 value);
+f64 floor64(f64 value);
+f64 ceil64(f64 value);
+
+f64 exp2_64(f64 value);
+f64 expe_64(f64 value);
+f64 log2_64(f64 value);
+f64 loge_64(f64 value);
+f64 log10_64(f64 value);
+
+f64 pow64(f64 base, f64 exp);
+f64 ldexp64(f64 mul, s32 exp); // @note `ret == mul * (2^exp)`
+
+f64 lerp64(f64 v1, f64 v2, f64 t);
+f64 lerp64_stable(f64 v1, f64 v2, f64 t);
+f64 lerp64_inverse(f64 v1, f64 v2, f64 value);
+
+f64 eerp64(f64 v1, f64 v2, f64 t);
+f64 eerp64_stable(f64 v1, f64 v2, f64 t);
+f64 eerp64_inverse(f64 v1, f64 v2, f64 value);
 
 // ---- ---- ---- ----
 // functions, limit
@@ -232,21 +299,37 @@ vec2 vec2_sub(vec2 l, vec2 r);
 vec2 vec2_mul(vec2 l, vec2 r);
 vec2 vec2_div(vec2 l, vec2 r);
 f32  vec2_dot(vec2 l, vec2 r);
+vec2 vec2_muls(vec2 l, f32 r);
+vec2 vec2_divs(vec2 l, f32 r);
 
 vec3 vec3_add(vec3 l, vec3 r);
 vec3 vec3_sub(vec3 l, vec3 r);
 vec3 vec3_mul(vec3 l, vec3 r);
 vec3 vec3_div(vec3 l, vec3 r);
 f32  vec3_dot(vec3 l, vec3 r);
+vec3 vec3_muls(vec3 l, f32 r);
+vec3 vec3_divs(vec3 l, f32 r);
 
 vec4 vec4_add(vec4 l, vec4 r);
 vec4 vec4_sub(vec4 l, vec4 r);
 vec4 vec4_mul(vec4 l, vec4 r);
 vec4 vec4_div(vec4 l, vec4 r);
 f32  vec4_dot(vec4 l, vec4 r);
+vec4 vec4_muls(vec4 l, f32 r);
+vec4 vec4_divs(vec4 l, f32 r);
 
 f32  vec2_crs(vec2 l, vec2 r);
 vec3 vec3_crs(vec3 l, vec3 r);
+
+// ---- ---- ---- ----
+// functions, f32 math, quaternion
+// ---- ---- ---- ----
+
+quat quat_axis(vec3 axis, f32 radians);
+quat quat_rotation(vec3 radians);
+quat quat_mul(quat l, quat r);
+vec3 quat_transform(quat q, vec3 v);
+void quat_get_axes(vec4 q, vec3 * x, vec3 * y, vec3 * z);
 
 // ---- ---- ---- ----
 // functions, f32 math, matrix
@@ -261,6 +344,17 @@ mat3 mat3_mul_mat(mat3 l, mat3 r);
 vec4 mat4_mul_vec(mat4 l, vec4 r);
 mat4 mat4_mul_mat(mat4 l, mat4 r);
 
+mat4 mat4_transformation(vec3 offset, quat rotation, vec3 scale);
+mat4 mat4_transformation_inverse(vec3 offset, quat rotation, vec3 scale);
+mat4 mat4_invert_transformation(mat4 transformation);
+
+mat4 mat4_projection(
+	vec2 scale_xy, vec2 offset_xy,
+	f32 view_near, f32 view_far,
+	f32 ndc_near,  f32 ndc_far,
+	f32 ortho
+);
+
 // ---- ---- ---- ----
 // functions, s32 math, vector
 // ---- ---- ---- ----
@@ -270,18 +364,24 @@ vec2i vec2i_sub(vec2i l, vec2i r);
 vec2i vec2i_mul(vec2i l, vec2i r);
 vec2i vec2i_div(vec2i l, vec2i r);
 s32   vec2i_dot(vec2i l, vec2i r);
+vec2i vec2i_muls(vec2i l, s32 r);
+vec2i vec2i_divs(vec2i l, s32 r);
 
 vec3i vec3i_add(vec3i l, vec3i r);
 vec3i vec3i_sub(vec3i l, vec3i r);
 vec3i vec3i_mul(vec3i l, vec3i r);
 vec3i vec3i_div(vec3i l, vec3i r);
 s32   vec3i_dot(vec3i l, vec3i r);
+vec3i vec3i_muls(vec3i l, s32 r);
+vec3i vec3i_divs(vec3i l, s32 r);
 
 vec4i vec4i_add(vec4i l, vec4i r);
 vec4i vec4i_sub(vec4i l, vec4i r);
 vec4i vec4i_mul(vec4i l, vec4i r);
 vec4i vec4i_div(vec4i l, vec4i r);
 s32   vec4i_dot(vec4i l, vec4i r);
+vec4i vec4i_muls(vec4i l, s32 r);
+vec4i vec4i_divs(vec4i l, s32 r);
 
 s32   vec2i_crs(vec2i l, vec2i r);
 vec3i vec3i_crs(vec3i l, vec3i r);

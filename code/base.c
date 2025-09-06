@@ -94,6 +94,56 @@ M_cm x V_cm = transpose(V_cm x M_cm)
 |   |   |   |   |   |   |   |   |
 |x_w|y_w|z_w|w_w|   |v_w|   |r_w|
 +---------------+   +---+   +---+
+
+
+
+
+@note vectors
+
+> imaginary basis
+  +------------+
+  |    i  j  k |
+  | i -1  k -j |
+  | j -k -1  i |
+  | k  j -i -1 |
+  +------------+
+  v = i*a1 + j*a2 + k*a3
+  v1 * v2 = (i*a1 + j*a2 + k*a3) * (i*b1 + j*b2 + k*b3)
+          = (v1 x v2) - (v1 . v2)
+
+> bivector basis
+  +---------------+
+  |     x   y   z |
+  | x   1  xy  xz |
+  | y -xy   1  yz |
+  | z -xz -yz   1 |
+  +---------------+
+  v = x*S1 + y*S2 + z*S3
+  v1 * v2 = (x*a1 + y*a2 + z*a3) * (x*b1 + y*b2 + z*b3)
+          = (v1 ^ v2) + (v1 . v2)
+
+> inner product (dot)
+  v1 . v2 = |v1| * |v2| * cos(a)
+  * commutative        `(v1 . v2)      == (v2 . v1)`
+  * distributive       `v1 . (v2 + v3) == (v1 . v2) + (v1 . v3)`
+  * scalar associative `(v1 . v2) * v3 == v1 * (v2 . v3)`
+
+> outer product (wedge)
+  v1 ^ v2 = |v1| * |v2| * sin(a) * I
+  `I` is a unit bivector, parallel to `v1` and `v2`
+  * anticomutative `(v1 ^ v2)      == -(v2 ^ v1)`
+  * distributive   `v1 ^ (v2 + v3) == (v1 ^ v2) + (v1 ^ v3)`
+  * IS associative `(v1 ^ v2) ^ v3 == v1 ^ (v2 ^ v3)`
+
+> cross product
+  v1 x v2 = |v1| * |v2| * sin(a) * n
+  `n` is a unit vector, perpendicular to `v1` and `v2`
+  * anticomutative  `(v1 x v2)      == -(v2 x v1)`
+  * distributive    `v1 x (v2 + v3) == (v1 x v2) + (v1 x v3)`
+  * NOT associative `(v1 x v2) x v3 != v1 x (v2 x v3)`
+
+  scalar triple product `A . (B x C) == (A x B) . C == B . (C x A)`
+  vector triple product `A x B x C   == (A . C) * B - (A . B) * C`
 */
 
 // ---- ---- ---- ----
@@ -149,6 +199,72 @@ u64 mul_div_u64(u64 value, u64 mul, u64 div) {
 	return (value / div) * mul
 	     + (value % div) * mul / div;
 }
+
+// ---- ---- ---- ----
+// functions, f32
+// ---- ---- ---- ----
+
+bool inf32(f32 value) { return isinf(value); }
+bool nan32(f32 value) { return isnan(value); }
+
+f32 sin32(f32 value)  { return sinf(value); }
+f32 cos32(f32 value)  { return cosf(value); }
+f32 sqrt32(f32 value) { return sqrtf(value); }
+
+f32 round32(f32 value) { return roundf(value); }
+f32 trunc32(f32 value) { return truncf(value); }
+f32 floor32(f32 value) { return floorf(value); }
+f32 ceil32(f32 value)  { return ceilf(value); }
+
+f32 exp2_32(f32 value)  { return exp2f(value); }
+f32 expe_32(f32 value)  { return expf(value); }
+f32 log2_32(f32 value)  { return log2f(value); }
+f32 loge_32(f32 value)  { return logf(value); }
+f32 log10_32(f32 value) { return log10f(value); }
+
+f32 pow32(f32 base, f32 exp)  { return powf(base, exp); }
+f32 ldexp32(f32 mul, s32 exp) { return ldexpf(mul, exp); }
+
+f32 lerp32(f32 v1, f32 v2, f32 t) { return v1 + (v2 - v1)*t; }
+f32 lerp32_stable(f32 v1, f32 v2, f32 t) { return v1 * (1 - t) + v2 * t; }
+f32 lerp32_inverse(f32 v1, f32 v2, f32 value) { return (value - v1) / (v2 - v1); }
+
+f32 eerp32(f32 v1, f32 v2, f32 t) { return v1 * pow32(v2 / v1, t); }
+f32 eerp32_stable(f32 v1, f32 v2, f32 t) { return pow32(v1, (1 - t)) * pow32(v2, t); }
+f32 eerp32_inverse(f32 v1, f32 v2, f32 value) { return loge_32(value / v1) / loge_32(v2 / v1); }
+
+// ---- ---- ---- ----
+// functions, f64
+// ---- ---- ---- ----
+
+bool inf64(f64 value) { return isinf(value); }
+bool nan64(f64 value) { return isnan(value); }
+
+f64 sin64(f64 value)  { return sin(value); }
+f64 cos64(f64 value)  { return cos(value); }
+f64 sqrt64(f64 value) { return sqrt(value); }
+
+f64 round64(f64 value) { return round(value); }
+f64 trunc64(f64 value) { return trunc(value); }
+f64 floor64(f64 value) { return floor(value); }
+f64 ceil64(f64 value)  { return ceil(value); }
+
+f64 exp2_64(f64 value)  { return exp2(value); }
+f64 expe_64(f64 value)  { return exp(value); }
+f64 log2_64(f64 value)  { return log2(value); }
+f64 loge_64(f64 value)  { return log(value); }
+f64 log10_64(f64 value) { return log10(value); }
+
+f64 pow64(f64 base, f64 exp)  { return pow(base, exp); }
+f64 ldexp64(f64 mul, s32 exp) { return ldexp(mul, exp); }
+
+f64 lerp64(f64 v1, f64 v2, f64 t) { return v1 + (v2 - v1)*t; }
+f64 lerp64_stable(f64 v1, f64 v2, f64 t) { return v1 * (1 - t) + v2 * t; }
+f64 lerp64_inverse(f64 v1, f64 v2, f64 value) { return (value - v1) / (v2 - v1); }
+
+f64 eerp64(f64 v1, f64 v2, f64 t) { return v1 * pow64(v2 / v1, t); }
+f64 eerp64_stable(f64 v1, f64 v2, f64 t) { return pow64(v1, (1 - t)) * pow64(v2, t); }
+f64 eerp64_inverse(f64 v1, f64 v2, f64 value) { return loge_64(value / v1) / loge_64(v2 / v1); }
 
 // ---- ---- ---- ----
 // functions, limit
@@ -245,18 +361,24 @@ vec2 vec2_sub(vec2 l, vec2 r) { return (vec2){l.x - r.x, l.y - r.y}; }
 vec2 vec2_mul(vec2 l, vec2 r) { return (vec2){l.x * r.x, l.y * r.y}; }
 vec2 vec2_div(vec2 l, vec2 r) { return (vec2){l.x / r.x, l.y / r.y}; }
 f32  vec2_dot(vec2 l, vec2 r) { return l.x * r.x + l.y * r.y; }
+vec2 vec2_muls(vec2 l, f32 r) { return (vec2){l.x * r, l.y * r}; }
+vec2 vec2_divs(vec2 l, f32 r) { return (vec2){l.x / r, l.y / r}; }
 
 vec3 vec3_add(vec3 l, vec3 r) { return (vec3){l.x + r.x, l.y + r.y, l.z + r.z}; }
 vec3 vec3_sub(vec3 l, vec3 r) { return (vec3){l.x - r.x, l.y - r.y, l.z - r.z}; }
 vec3 vec3_mul(vec3 l, vec3 r) { return (vec3){l.x * r.x, l.y * r.y, l.z * r.z}; }
 vec3 vec3_div(vec3 l, vec3 r) { return (vec3){l.x / r.x, l.y / r.y, l.z / r.z}; }
 f32  vec3_dot(vec3 l, vec3 r) { return l.x * r.x + l.y * r.y + l.z * r.z; }
+vec3 vec3_muls(vec3 l, f32 r) { return (vec3){l.x * r, l.y * r, l.z * r}; }
+vec3 vec3_divs(vec3 l, f32 r) { return (vec3){l.x / r, l.y / r, l.z / r}; }
 
 vec4 vec4_add(vec4 l, vec4 r) { return (vec4){l.x + r.x, l.y + r.y, l.z + r.z, l.w + r.w}; }
 vec4 vec4_sub(vec4 l, vec4 r) { return (vec4){l.x - r.x, l.y - r.y, l.z - r.z, l.w - r.w}; }
 vec4 vec4_mul(vec4 l, vec4 r) { return (vec4){l.x * r.x, l.y * r.y, l.z * r.z, l.w * r.w}; }
 vec4 vec4_div(vec4 l, vec4 r) { return (vec4){l.x / r.x, l.y / r.y, l.z / r.z, l.w / r.w}; }
 f32  vec4_dot(vec4 l, vec4 r) { return l.x * r.x + l.y * r.y + l.z * r.z + l.w * r.w; }
+vec4 vec4_muls(vec4 l, f32 r) { return (vec4){l.x * r, l.y * r, l.z * r, l.w * r}; }
+vec4 vec4_divs(vec4 l, f32 r) { return (vec4){l.x / r, l.y / r, l.z / r, l.w / r}; }
 
 f32  vec2_crs(vec2 l, vec2 r) { return l.x * r.y - l.y * r.x; }
 vec3 vec3_crs(vec3 l, vec3 r) { return (vec3){
@@ -264,6 +386,90 @@ vec3 vec3_crs(vec3 l, vec3 r) { return (vec3){
 	l.z * r.x - l.x * r.z,
 	l.x * r.y - l.y * r.x,
 }; }
+
+// ---- ---- ---- ----
+// functions, f32 math, quaternion
+// ---- ---- ---- ----
+
+quat quat_axis(vec3 axis, f32 radians) {
+	f32 const h = radians * 0.5f;
+	f32 const s = sin32(h);
+	f32 const c = cos32(h);
+	return (quat){axis.x * s, axis.y * s, axis.z * s, c};
+}
+
+quat quat_rotation(vec3 radians) {
+	vec3 const h = vec3_mul(radians, (vec3){0.5f, 0.5f, 0.5f});
+	vec3 const s = (vec3){sin32(h.x), sin32(h.y), sin32(h.z)};
+	vec3 const c = (vec3){cos32(h.x), cos32(h.y), cos32(h.z)};
+	float const sy_cx = s.y*c.x; float const cy_sx = c.y*s.x;
+	float const cy_cx = c.y*c.x; float const sy_sx = s.y*s.x;
+	return (quat){
+		sy_cx*s.z + cy_sx*c.z,
+		sy_cx*c.z - cy_sx*s.z,
+		cy_cx*s.z - sy_sx*c.z,
+		cy_cx*c.z + sy_sx*s.z,
+	};
+
+/*
+ret = quat_axis({0,1,0}, radians_y)
+    * quat_axis({1,0,0}, radians_x)
+    * quat_axis({0,0,1}, radians_z)
+*/
+}
+
+quat quat_mul(quat l, quat r) {
+	return (quat){
+		 l.x * r.w + l.y * r.z - l.z * r.y + l.w * r.x,
+		-l.x * r.z + l.y * r.w + l.z * r.x + l.w * r.y,
+		 l.x * r.y - l.y * r.x + l.z * r.w + l.w * r.z,
+		-l.x * r.x - l.y * r.y - l.z * r.z + l.w * r.w,
+	};
+
+/*
+ret = (l_v + l_w)
+    * (r_v + r_w)
+
+ret = (l_v x r_v) + r_v * l_w + l_v * r_w
+    - (l_v . r_v)             + l_w * r_w
+*/
+}
+
+vec3 quat_transform(quat q, vec3 v) {
+	vec3 const cr = vec3_crs((vec3){q.x, q.y, q.z}, v);
+	return (vec3){
+	//  v   + (q_v x cr                + q_w * cr)   * 2
+	/**/v.x + (q.y * cr.z - q.z * cr.y + q.w * cr.x) * 2,
+	/**/v.y + (q.z * cr.x - q.x * cr.z + q.w * cr.y) * 2,
+	/**/v.z + (q.x * cr.y - q.y * cr.x + q.w * cr.z) * 2,
+	};
+
+/*
+ret = ( q_v + q_w)
+    * (   v +   0)
+    * (-q_v + q_w)
+    / dot(q, q)
+
+ret = v
+    + cross(q_v,  cr * 2)
+    +       q_w * cr * 2
+*/
+}
+
+void quat_get_axes(vec4 q, vec3 * x, vec3 * y, vec3 * z) {
+	f32 const xx = q.x*q.x; f32 const xy = q.x*q.y; f32 const xz = q.x*q.z;
+	f32 const zw = q.z*q.w; f32 const yy = q.y*q.y; f32 const yz = q.y*q.z;
+	f32 const yw = q.y*q.w; f32 const wx = q.w*q.x; f32 const zz = q.z*q.z;
+	*x = (vec3){1 - (yy + zz) * 2,     (xy + zw) * 2,     (xz - yw) * 2};
+	*y = (vec3){    (xy - zw) * 2, 1 - (zz + xx) * 2,     (yz + wx) * 2};
+	*z = (vec3){    (xz + yw) * 2,     (yz - wx) * 2, 1 - (xx + yy) * 2};
+
+/*
+x = quat_transform(q, {1,0,0})
+y = quat_transform(q, {0,1,0})
+z = quat_transform(q, {0,0,1})
+*/
+}
 
 // ---- ---- ---- ----
 // functions, s32 math, matrix
@@ -305,6 +511,115 @@ mat4 mat4_mul_mat(mat4 l, mat4 r) { return (mat4){
 	mat4_mul_vec(l, r.w),
 }; }
 
+mat4 mat4_transformation(vec3 offset, quat rotation, vec3 scale) {
+	vec3 axis_x, axis_y, axis_z;
+	quat_get_axes(rotation, &axis_x, &axis_y, &axis_z);
+	axis_x = vec3_muls(axis_x, scale.x);
+	axis_y = vec3_muls(axis_y, scale.y);
+	axis_z = vec3_muls(axis_z, scale.z);
+	return (mat4){
+		{axis_x.x, axis_x.y, axis_x.z,   0},
+		{axis_y.x, axis_y.y, axis_y.z,   0},
+		{axis_z.x, axis_z.y, axis_z.z,   0},
+		{offset.x, offset.y, offset.z, 1},
+	};
+}
+
+mat4 mat4_transformation_inverse(vec3 offset, quat rotation, vec3 scale) {
+	vec3 axis_x, axis_y, axis_z;
+	quat_get_axes(rotation, &axis_x, &axis_y, &axis_z);
+	axis_x = vec3_muls(axis_x, scale.x);
+	axis_y = vec3_muls(axis_y, scale.y);
+	axis_z = vec3_muls(axis_z, scale.z);
+	return (mat4){
+		{axis_x.x, axis_y.x, axis_z.x, 0},
+		{axis_x.y, axis_y.y, axis_z.y, 0},
+		{axis_x.z, axis_y.z, axis_z.z, 0},
+		{
+			-vec3_dot(offset, axis_x),
+			-vec3_dot(offset, axis_y),
+			-vec3_dot(offset, axis_z),
+			1
+		},
+	};
+}
+
+mat4 mat4_invert_transformation(mat4 transformation) {
+	vec3 const position = (vec3){transformation.w.x, transformation.w.y, transformation.w.z};
+	return (mat4){
+		{transformation.x.x, transformation.y.x, transformation.z.x, 0},
+		{transformation.x.y, transformation.y.y, transformation.z.y, 0},
+		{transformation.x.z, transformation.y.z, transformation.z.z, 0},
+		{
+			-vec3_dot(position, (vec3){transformation.x.x, transformation.x.y, transformation.x.z}),
+			-vec3_dot(position, (vec3){transformation.y.x, transformation.y.y, transformation.y.z}),
+			-vec3_dot(position, (vec3){transformation.z.x, transformation.z.y, transformation.z.z}),
+			1
+		},
+	};
+}
+
+mat4 mat4_projection(
+	vec2 scale_xy, vec2 offset_xy,
+	f32 view_near, f32 view_far,
+	f32 ndc_near,  f32 ndc_far,
+	f32 ortho
+) {
+	float const reverse_depth = 1 / (view_far - view_near);
+
+	float const persp_scale_z  = inf32(view_far) ? ndc_far                            : (reverse_depth * (ndc_far * view_far - ndc_near * view_near));
+	float const persp_offset_z = inf32(view_far) ? ((ndc_near - ndc_far) * view_near) : (reverse_depth * (ndc_near - ndc_far) * view_near * view_far);
+
+	float const ortho_scale_z  = inf32(view_far) ? 0        : (reverse_depth * (ndc_far - ndc_near));
+	float const ortho_offset_z = inf32(view_far) ? ndc_near : (reverse_depth * (ndc_near * view_far - ndc_far * view_near));
+
+	float const scale_z  = lerp32(persp_scale_z,  ortho_scale_z,  ortho);
+	float const offset_z = lerp32(persp_offset_z, ortho_offset_z, ortho);
+	float const zw = 1 - ortho;
+	float const ww = ortho;
+
+	return (mat4){
+		{scale_xy.x,  0,           0,         0},
+		{0,           scale_xy.y,  0,         0},
+		{0,           0,           scale_z,  zw},
+		{offset_xy.x, offset_xy.y, offset_z, ww},
+	};
+
+/*
+> aim:
+map [-pos_xy   .. pos_xy]   -> [-1       .. 1]
+map [view_near .. view_far] -> [ndc_near .. ndc_far]
+
+> known params (aspect correction)
+scale_XY = {1, width / height} / tan(FoV / 2) or {height / width, 1} / tan(FoV / 2)
+offset_XY = {0, 0}, i.e. the screen center
+
+> known params (direct mapping from bottom-left to top-right)
+scale_XY = {2 / width, 2 / height}
+offset = {-1, -1}
+
+> orthograhic: NDC = XYZ * scale + offset
+Sz = (ndc_far - ndc_near) / (view_far - view_near)
+   ~ 0 ; !IF! view_far == infinity
+Oz = (ndc_near * view_far - ndc_far * view_near) / (view_far - view_near)
+   ~ ndc_near ; !IF! view_far == infinity
+| Sx  0   0  Ox |    | x |    | x * Sx + Ox |
+| 0   Sy  0  Oy | \/ | y | == | y * Sy + Oy |
+| 0   0   Sz Oz | /\ | z | == | z * Sz + Oz |
+| 0   0   0  1  |    | 1 |    | 1           |
+
+> perspective: NDC = (XYZ * scale + offset) / z
+Sz = (ndc_far * view_far - ndc_near * view_near) / (view_far - view_near)
+   ~ ndc_far ; !IF! view_far == infinity
+Oz = (ndc_near - ndc_far) * view_near * view_far / (view_far - view_near)
+   ~ (ndc_near - ndc_far) * view_near ; !IF! view_far == infinity
+| Sx  0   0  Ox |    | x |    | x * Sx + Ox |
+| 0   Sy  0  Oy | \/ | y | == | y * Sy + Oy |
+| 0   0   Sz Oz | /\ | z | == | z * Sz + Oz |
+| 0   0   1  0  |    | 1 |    | z           |
+*/
+}
+
 // ---- ---- ---- ----
 // functions, s32 math, vector
 // ---- ---- ---- ----
@@ -314,18 +629,24 @@ vec2i vec2i_sub(vec2i l, vec2i r) { return (vec2i){l.x - r.x, l.y - r.y}; }
 vec2i vec2i_mul(vec2i l, vec2i r) { return (vec2i){l.x * r.x, l.y * r.y}; }
 vec2i vec2i_div(vec2i l, vec2i r) { return (vec2i){l.x / r.x, l.y / r.y}; }
 s32   vec2i_dot(vec2i l, vec2i r) { return l.x * r.x + l.y * r.y; }
+vec2i vec2i_muls(vec2i l, s32 r) { return (vec2i){l.x * r, l.y * r}; }
+vec2i vec2i_divs(vec2i l, s32 r) { return (vec2i){l.x / r, l.y / r}; }
 
 vec3i vec3i_add(vec3i l, vec3i r) { return (vec3i){l.x + r.x, l.y + r.y, l.z + r.z}; }
 vec3i vec3i_sub(vec3i l, vec3i r) { return (vec3i){l.x - r.x, l.y - r.y, l.z - r.z}; }
 vec3i vec3i_mul(vec3i l, vec3i r) { return (vec3i){l.x * r.x, l.y * r.y, l.z * r.z}; }
 vec3i vec3i_div(vec3i l, vec3i r) { return (vec3i){l.x / r.x, l.y / r.y, l.z / r.z}; }
 s32   vec3i_dot(vec3i l, vec3i r) { return l.x * r.x + l.y * r.y + l.z * r.z; }
+vec3i vec3i_muls(vec3i l, s32 r) { return (vec3i){l.x * r, l.y * r, l.z * r}; }
+vec3i vec3i_divs(vec3i l, s32 r) { return (vec3i){l.x / r, l.y / r, l.z / r}; }
 
 vec4i vec4i_add(vec4i l, vec4i r) { return (vec4i){l.x + r.x, l.y + r.y, l.z + r.z, l.w + r.w}; }
 vec4i vec4i_sub(vec4i l, vec4i r) { return (vec4i){l.x - r.x, l.y - r.y, l.z - r.z, l.w - r.w}; }
 vec4i vec4i_mul(vec4i l, vec4i r) { return (vec4i){l.x * r.x, l.y * r.y, l.z * r.z, l.w * r.w}; }
 vec4i vec4i_div(vec4i l, vec4i r) { return (vec4i){l.x / r.x, l.y / r.y, l.z / r.z, l.w / r.w}; }
 s32   vec4i_dot(vec4i l, vec4i r) { return l.x * r.x + l.y * r.y + l.z * r.z + l.w * r.w; }
+vec4i vec4i_muls(vec4i l, s32 r) { return (vec4i){l.x * r, l.y * r, l.z * r, l.w * r}; }
+vec4i vec4i_divs(vec4i l, s32 r) { return (vec4i){l.x / r, l.y / r, l.z / r, l.w / r}; }
 
 s32   vec2i_crs(vec2i l, vec2i r) { return l.x * r.y - l.y * r.x; }
 vec3i vec3i_crs(vec3i l, vec3i r) { return (vec3i){
