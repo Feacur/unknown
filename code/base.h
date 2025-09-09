@@ -660,6 +660,20 @@ AttrPrint(2, 3)
 uint32_t fmt_buffer(char * out_buffer, char * fmt, ...);
 
 // ---- ---- ---- ----
+// images
+// ---- ---- ---- ----
+
+struct Image {
+	size_t   scalar_size;
+	uvec2    size;
+	u8       channels;
+	void   * buffer;
+};
+
+struct Image image_init(arr8 const file);
+void image_free(struct Image * image);
+
+// ---- ---- ---- ----
 // debugging
 // ---- ---- ---- ----
 

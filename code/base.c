@@ -993,8 +993,8 @@ struct Arena * thread_ctx_get_scratch(void) {
 // file utilities
 // ---- ---- ---- ----
 
-struct Array_U8 base_file_read(struct Arena * arena, char const * name) {
-	struct Array_U8 ret = {0};
+arr8 base_file_read(struct Arena * arena, char const * name) {
+	arr8 ret = {0};
 	struct OS_File * file = os_file_init((struct OS_File_IInfo){
 		.name = name,
 	});
@@ -1069,4 +1069,42 @@ uint32_t fmt_buffer(char * out_buffer, char * fmt, ...) {
 
 	va_end(args);
 	return (uint32_t)written;
+}
+
+// ---- ---- ---- ----
+// images
+// ---- ---- ---- ----
+
+#define STBI_NO_STDIO
+#define STBI_ONLY_PNG
+
+#define STBI_MALLOC(size)           os_memory_heap(NULL,    size)
+#define STBI_REALLOC(pointer, size) os_memory_heap(pointer, size)
+#define STBI_FREE(pointer)          os_memory_heap(pointer, 0)
+
+#define STB_IMAGE_STATIC
+#define STB_IMAGE_IMPLEMENTATION
+
+#include "_internal/warnings_push.h"
+# include <stb/stb_image.h>
+#include "_internal/warnings_pop.h"
+
+struct Image image_init(arr8 const file) {
+	stbi_set_flip_vertically_on_load(1);
+	int const channels_override = STBI_rgb_alpha;
+
+	int size_x, size_y, channels;
+	stbi_uc * image = stbi_load_from_memory(file.buffer, (int)file.count, &size_x, &size_y, &channels, channels_override);
+
+	return (struct Image){
+		.scalar_size = sizeof(stbi_uc),
+		.size        = {(u32)size_x, (u32)size_y},
+		.channels    = (u8)(channels_override ? channels_override : channels),
+		.buffer      = image,
+	};
+}
+
+void image_free(struct Image * image) {
+	STBI_FREE(image->buffer);
+	mem_zero(image, sizeof(*image));
 }
