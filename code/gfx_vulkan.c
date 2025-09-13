@@ -172,6 +172,114 @@ str8 gfx_to_string_queue_flags(struct Arena * arena, VkQueueFlags flags) {
 }
 
 // ---- ---- ---- ----
+// convertors
+// ---- ---- ---- ----
+
+AttrFileLocal()
+VkFormat gfx_to_format_vector(enum VkFormat primitive, size_t count) {
+	switch (primitive) {
+		default: break;
+		// sRGB
+		case VK_FORMAT_R8_SRGB: switch (count) {
+			case 1: return VK_FORMAT_R8_SRGB;
+			case 2: return VK_FORMAT_R8G8_SRGB;
+			case 3: return VK_FORMAT_R8G8B8_SRGB;
+			case 4: return VK_FORMAT_R8G8B8A8_SRGB;
+		} break;
+		// unsigned integers
+		case VK_FORMAT_R8_UINT: switch (count) {
+			case 1: return VK_FORMAT_R8_UINT;
+			case 2: return VK_FORMAT_R8G8_UINT;
+			case 3: return VK_FORMAT_R8G8B8_UINT;
+			case 4: return VK_FORMAT_R8G8B8A8_UINT;
+		} break;
+		case VK_FORMAT_R16_UINT: switch (count) {
+			case 1: return VK_FORMAT_R16_UINT;
+			case 2: return VK_FORMAT_R16G16_UINT;
+			case 3: return VK_FORMAT_R16G16B16_UINT;
+			case 4: return VK_FORMAT_R16G16B16A16_UINT;
+		} break;
+		case VK_FORMAT_R32_UINT: switch (count) {
+			case 1: return VK_FORMAT_R32_UINT;
+			case 2: return VK_FORMAT_R32G32_UINT;
+			case 3: return VK_FORMAT_R32G32B32_UINT;
+			case 4: return VK_FORMAT_R32G32B32A32_UINT;
+		} break;
+		case VK_FORMAT_R64_UINT: switch (count) {
+			case 1: return VK_FORMAT_R64_UINT;
+			case 2: return VK_FORMAT_R64G64_UINT;
+			case 3: return VK_FORMAT_R64G64B64_UINT;
+			case 4: return VK_FORMAT_R64G64B64A64_UINT;
+		} break;
+		// unsigned integers, normalized
+		case VK_FORMAT_R8_UNORM: switch (count) {
+			case 1: return VK_FORMAT_R8_UNORM;
+			case 2: return VK_FORMAT_R8G8_UNORM;
+			case 3: return VK_FORMAT_R8G8B8_UNORM;
+			case 4: return VK_FORMAT_R8G8B8A8_UNORM;
+		} break;
+		case VK_FORMAT_R16_UNORM: switch (count) {
+			case 1: return VK_FORMAT_R16_UNORM;
+			case 2: return VK_FORMAT_R16G16_UNORM;
+			case 3: return VK_FORMAT_R16G16B16_UNORM;
+			case 4: return VK_FORMAT_R16G16B16A16_UNORM;
+		} break;
+		// signed integers
+		case VK_FORMAT_R8_SINT: switch (count) {
+			case 1: return VK_FORMAT_R8_SINT;
+			case 2: return VK_FORMAT_R8G8_SINT;
+			case 3: return VK_FORMAT_R8G8B8_SINT;
+			case 4: return VK_FORMAT_R8G8B8A8_SINT;
+		} break;
+		case VK_FORMAT_R16_SINT: switch (count) {
+			case 1: return VK_FORMAT_R16_SINT;
+			case 2: return VK_FORMAT_R16G16_SINT;
+			case 3: return VK_FORMAT_R16G16B16_SINT;
+			case 4: return VK_FORMAT_R16G16B16A16_SINT;
+		} break;
+		case VK_FORMAT_R32_SINT: switch (count) {
+			case 1: return VK_FORMAT_R32_SINT;
+			case 2: return VK_FORMAT_R32G32_SINT;
+			case 3: return VK_FORMAT_R32G32B32_SINT;
+			case 4: return VK_FORMAT_R32G32B32A32_SINT;
+		} break;
+		case VK_FORMAT_R64_SINT: switch (count) {
+			case 1: return VK_FORMAT_R64_SINT;
+			case 2: return VK_FORMAT_R64G64_SINT;
+			case 3: return VK_FORMAT_R64G64B64_SINT;
+			case 4: return VK_FORMAT_R64G64B64A64_SINT;
+		} break;
+		// signed integers, normalized
+		case VK_FORMAT_R8_SNORM: switch (count) {
+			case 1: return VK_FORMAT_R8_SNORM;
+			case 2: return VK_FORMAT_R8G8_SNORM;
+			case 3: return VK_FORMAT_R8G8B8_SNORM;
+			case 4: return VK_FORMAT_R8G8B8A8_SNORM;
+		} break;
+		case VK_FORMAT_R16_SNORM: switch (count) {
+			case 1: return VK_FORMAT_R16_SNORM;
+			case 2: return VK_FORMAT_R16G16_SNORM;
+			case 3: return VK_FORMAT_R16G16B16_SNORM;
+			case 4: return VK_FORMAT_R16G16B16A16_SNORM;
+		} break;
+		// floating points
+		case VK_FORMAT_R32_SFLOAT: switch (count) {
+			case 1: return VK_FORMAT_R32_SFLOAT;
+			case 2: return VK_FORMAT_R32G32_SFLOAT;
+			case 3: return VK_FORMAT_R32G32B32_SFLOAT;
+			case 4: return VK_FORMAT_R32G32B32A32_SFLOAT;
+		} break;
+		case VK_FORMAT_R64_SFLOAT: switch (count) {
+			case 1: return VK_FORMAT_R64_SFLOAT;
+			case 2: return VK_FORMAT_R64G64_SFLOAT;
+			case 3: return VK_FORMAT_R64G64B64_SFLOAT;
+			case 4: return VK_FORMAT_R64G64B64A64_SFLOAT;
+		} break;
+	}
+	return VK_FORMAT_UNDEFINED;
+}
+
+// ---- ---- ---- ----
 // utilities
 // ---- ---- ---- ----
 
@@ -1627,7 +1735,7 @@ void gfx_dpool_free(void) {
 // ---- ---- ---- ----
 
 struct Vertex {
-	float position[2];
+	float position[3];
 	float color[3];
 	float uv[2];
 };
@@ -1742,19 +1850,19 @@ void gfx_graphics_pipeline_init(void) {
 					{
 						.binding = 0,
 						.location = 0,
-						.format = VK_FORMAT_R32G32_SFLOAT,
+						.format = gfx_to_format_vector(VK_FORMAT_R32_SFLOAT, FieldCount(struct Vertex, position)),
 						.offset = offsetof(struct Vertex, position),
 					},
 					{
 						.binding = 0,
 						.location = 1,
-						.format = VK_FORMAT_R32G32B32_SFLOAT,
+						.format = gfx_to_format_vector(VK_FORMAT_R32_SFLOAT, FieldCount(struct Vertex, color)),
 						.offset = offsetof(struct Vertex, color),
 					},
 					{
 						.binding = 0,
 						.location = 2,
-						.format = VK_FORMAT_R32G32_SFLOAT,
+						.format = gfx_to_format_vector(VK_FORMAT_R32_SFLOAT, FieldCount(struct Vertex, uv)),
 						.offset = offsetof(struct Vertex, uv),
 					},
 				},
@@ -1921,16 +2029,20 @@ void gfx_material_free(void) {
 
 AttrFileLocal()
 struct Vertex const fl_gfx_vertices[] = {
-	{.position = {-0.5f, -0.5f}, .color = {1.0f, 0.0f, 0.0f}, .uv = {0, 0}},
-	{.position = { 0.5f, -0.5f}, .color = {0.0f, 1.0f, 0.0f}, .uv = {1, 0}},
-	{.position = { 0.5f,  0.5f}, .color = {0.0f, 0.0f, 1.0f}, .uv = {1, 1}},
-	{.position = {-0.5f,  0.5f}, .color = {1.0f, 1.0f, 1.0f}, .uv = {0, 1}},
+	{.position = {-0.5f, 0.5f, -0.5f}, .color = {1.0f, 0.0f, 0.0f}, .uv = {0, 0}},
+	{.position = { 0.5f, 0.5f, -0.5f}, .color = {0.0f, 1.0f, 0.0f}, .uv = {1, 0}},
+	{.position = { 0.5f, 0.5f,  0.5f}, .color = {0.0f, 0.0f, 1.0f}, .uv = {1, 1}},
+	{.position = {-0.5f, 0.5f,  0.5f}, .color = {1.0f, 1.0f, 1.0f}, .uv = {0, 1}},
+	{.position = {-0.5f, 0.0f, -0.5f}, .color = {1.0f, 0.0f, 0.0f}, .uv = {0, 0}},
+	{.position = { 0.5f, 0.0f, -0.5f}, .color = {0.0f, 1.0f, 0.0f}, .uv = {1, 0}},
+	{.position = { 0.5f, 0.0f,  0.5f}, .color = {0.0f, 0.0f, 1.0f}, .uv = {1, 1}},
+	{.position = {-0.5f, 0.0f,  0.5f}, .color = {1.0f, 1.0f, 1.0f}, .uv = {0, 1}},
 };
 
 AttrFileLocal()
 uint16_t fl_gfx_indices[] = {
-	0, 1, 2,
-	2, 3, 0,
+	0, 1, 2, 2, 3, 0,
+	4, 5, 6, 6, 7, 4,
 };
 
 AttrFileLocal()
@@ -1986,14 +2098,7 @@ void gfx_texture_init(void) {
 	struct Image image = image_init(file);
 
 	VkDeviceSize const total_size = image.scalar_size * image.size.x * image.size.y * image.channels;
-
-	VkFormat format;
-	switch (image.channels) {
-		case 1: format = VK_FORMAT_R8_SRGB; break;
-		case 2: format = VK_FORMAT_R8G8_SRGB; break;
-		case 3: format = VK_FORMAT_R8G8B8_SRGB; break;
-		case 4: format = VK_FORMAT_R8G8B8A8_SRGB; break;
-	}
+	VkFormat const format = gfx_to_format_vector(VK_FORMAT_R8_SRGB, image.channels);
 
 	// @todo might be better to use a common allocator for this
 	VkBuffer staging_buffer;
@@ -2131,6 +2236,26 @@ void gfx_tick(void) {
 	vkResetCommandBuffer(command_buffer, 0);
 
 	// ---- ---- ---- ----
+	// upload uniforms
+	// ---- ---- ---- ----
+
+	{
+		f32 const fov = PI32 / 2;
+		vec2 const vp_scale = vec2_muls(
+			(vec2){(f32)fl_gfx.swapchain.extent.height / (f32)fl_gfx.swapchain.extent.width, 1},
+			cos32(fov / 2) / sin32(fov / 2)
+		);
+		u64 const rotation_period = AsNanos(5);
+		f32 const rotation = TAU32 * (f32)(os_timer_get_nanos() % rotation_period) / (f32)rotation_period;
+		struct UData const udata = {
+			.model = mat4_transformation(vec3_0, quat_axis(vec3_y1, rotation), vec3_1),
+			.view = mat4_transformation_inverse((vec3){0, 2, -2}, quat_rotation((vec3){PI32/4, 0, 0}), vec3_1),
+			.projection = gfx_mat4_projection(vp_scale, vec2_0, 0, 0.1f, INF32),
+		};
+		mem_copy(&udata, fl_gfx.material.udata_maps[frame], sizeof(udata));
+	}
+
+	// ---- ---- ---- ----
 	// draw
 	// ---- ---- ---- ----
 
@@ -2167,23 +2292,6 @@ void gfx_tick(void) {
 	vkCmdSetScissor(command_buffer, 0, 1, &(VkRect2D){
 		.extent = fl_gfx.swapchain.extent,
 	});
-
-	{
-		f32 const fov = PI32 / 2;
-		vec2 const vp_scale = vec2_muls(
-			(vec2){(f32)fl_gfx.swapchain.extent.height / (f32)fl_gfx.swapchain.extent.width, 1},
-			cos32(fov / 2) / sin32(fov / 2)
-		);
-		u64 const rotation_period = AsNanos(5);
-		f32 const rotation = TAU32 * (f32)(os_timer_get_nanos() % rotation_period) / (f32)rotation_period;
-		struct UData const udata = {
-			.model = mat4_transformation(vec3_0, quat_axis(vec3_z1, rotation), vec3_1),
-			.view = mat4_transformation_inverse((vec3){0, 0, -1}, quat_i, vec3_1),
-			.projection = gfx_mat4_projection(vp_scale, vec2_0, 0, 0.1f, INF32),
-		};
-		mem_copy(&udata, fl_gfx.material.udata_maps[frame], sizeof(udata));
-	}
-
 	vkCmdBindDescriptorSets(
 		command_buffer,
 		VK_PIPELINE_BIND_POINT_GRAPHICS,
