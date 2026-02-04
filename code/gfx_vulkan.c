@@ -369,10 +369,10 @@ bool gfx_match_sets(
 	uint32_t requested_count, char const * const * requested_set,
 	uint32_t available_count, char const * const * avaliable_set) {
 	bool available = true;
-	for (uint32_t i = 0; i < requested_count; i++) {
-		char const * requested = requested_set[i];
-		for (uint32_t i = 0; i < available_count; i++) {
-			char const * available = avaliable_set[i];
+	for (uint32_t re_i = 0; re_i < requested_count; re_i++) {
+		char const * requested = requested_set[re_i];
+		for (uint32_t av_i = 0; av_i < available_count; av_i++) {
+			char const * available = avaliable_set[av_i];
 			if (str_equals(requested, available))
 				goto found;
 		}
@@ -1961,18 +1961,12 @@ void gfx_dpool_free(void) {
 // pipeline / USER DATA
 // ---- ---- ---- ----
 
-struct Vertex {
-	float position[3];
-	float color[3];
-	float uv[2];
-};
-
 AttrFileLocal()
 VkShaderModule gfx_shader_module_create(char const * name) {
 	struct Arena * scratch = thread_ctx_get_scratch();
 	u64 const scratch_position = arena_get_position(scratch);
 
-	struct Array_U8 const source = base_file_read(scratch, name);
+	arr8 const source = base_file_read(scratch, name);
 	VkShaderModule ret;
 	vkCreateShaderModule(
 		fl_gfx.device.handle,
@@ -2071,7 +2065,7 @@ void gfx_graphics_pipeline_init(void) {
 				.vertexBindingDescriptionCount = 1,
 				.pVertexBindingDescriptions = &(VkVertexInputBindingDescription){
 					.binding = 0,
-					.stride = sizeof(struct Vertex),
+					.stride = sizeof(struct Model_Vertex),
 					.inputRate = VK_VERTEX_INPUT_RATE_VERTEX,
 				},
 				// attributes
@@ -2080,20 +2074,20 @@ void gfx_graphics_pipeline_init(void) {
 					{
 						.binding = 0,
 						.location = 0,
-						.format = gfx_to_format_vector(VK_FORMAT_R32_SFLOAT, FieldCount(struct Vertex, position)),
-						.offset = offsetof(struct Vertex, position),
+						.format = gfx_to_format_vector(VK_FORMAT_R32_SFLOAT, FieldSize(struct Model_Vertex, position) / sizeof(f32)),
+						.offset = offsetof(struct Model_Vertex, position),
 					},
 					{
 						.binding = 0,
 						.location = 1,
-						.format = gfx_to_format_vector(VK_FORMAT_R32_SFLOAT, FieldCount(struct Vertex, color)),
-						.offset = offsetof(struct Vertex, color),
+						.format = gfx_to_format_vector(VK_FORMAT_R32_SFLOAT, FieldSize(struct Model_Vertex, texture) / sizeof(f32)),
+						.offset = offsetof(struct Model_Vertex, texture),
 					},
 					{
 						.binding = 0,
 						.location = 2,
-						.format = gfx_to_format_vector(VK_FORMAT_R32_SFLOAT, FieldCount(struct Vertex, uv)),
-						.offset = offsetof(struct Vertex, uv),
+						.format = gfx_to_format_vector(VK_FORMAT_R32_SFLOAT, FieldSize(struct Model_Vertex, normal) / sizeof(f32)),
+						.offset = offsetof(struct Model_Vertex, normal),
 					},
 				},
 			},
@@ -2268,29 +2262,21 @@ void gfx_material_free(void) {
 // ---- ---- ---- ----
 
 AttrFileLocal()
-struct Vertex const fl_gfx_vertices[] = {
-	{.position = {-0.5f, 0.5f, -0.5f}, .color = {1.0f, 0.0f, 0.0f}, .uv = {0, 0}},
-	{.position = { 0.5f, 0.5f, -0.5f}, .color = {0.0f, 1.0f, 0.0f}, .uv = {1, 0}},
-	{.position = { 0.5f, 0.5f,  0.5f}, .color = {0.0f, 0.0f, 1.0f}, .uv = {1, 1}},
-	{.position = {-0.5f, 0.5f,  0.5f}, .color = {1.0f, 1.0f, 1.0f}, .uv = {0, 1}},
-	{.position = {-0.5f, 0.0f, -0.5f}, .color = {1.0f, 0.0f, 0.0f}, .uv = {0, 0}},
-	{.position = { 0.5f, 0.0f, -0.5f}, .color = {0.0f, 1.0f, 0.0f}, .uv = {1, 0}},
-	{.position = { 0.5f, 0.0f,  0.5f}, .color = {0.0f, 0.0f, 1.0f}, .uv = {1, 1}},
-	{.position = {-0.5f, 0.0f,  0.5f}, .color = {1.0f, 1.0f, 1.0f}, .uv = {0, 1}},
-};
-
-AttrFileLocal()
-uint16_t fl_gfx_indices[] = {
-	0, 1, 2, 2, 3, 0,
-	4, 5, 6, 6, 7, 4,
-};
-
-AttrFileLocal()
 void gfx_model_init(void) {
-	VkDeviceSize const total_size = sizeof(fl_gfx_vertices) + sizeof(fl_gfx_indices);
+	struct Arena * scratch = thread_ctx_get_scratch();
+	u64 const scratch_position = arena_get_position(scratch);
+
+	struct Model_Vertex * vertices; u32 vertices_count;
+	u16                 * indices;  u16 indices_count;
+
+	struct Model * model = model_init("../data/viking_room.obj"); // @todo fix path
+	model_dump_vertices(model, scratch, &vertices, &vertices_count, &indices, &indices_count);
+	model_free(model);
+
+	VkDeviceSize const total_size = sizeof(*vertices) * vertices_count + sizeof(*indices) * indices_count;
 	fl_gfx.model.offset_vertex = 0;
-	fl_gfx.model.offset_index  = sizeof(fl_gfx_vertices);
-	fl_gfx.model.index_count = ArrayCount(fl_gfx_indices);
+	fl_gfx.model.offset_index  = sizeof(*vertices) * vertices_count;
+	fl_gfx.model.index_count = indices_count;
 	fl_gfx.model.index_type  = VK_INDEX_TYPE_UINT16;
 
 	// @todo might be better to use a common allocator for this
@@ -2305,8 +2291,8 @@ void gfx_model_init(void) {
 
 	void * target;
 	vkMapMemory(fl_gfx.device.handle, staging_buffer_memory, 0, total_size, 0, &target);
-	mem_copy(fl_gfx_vertices, (u8 *)target + fl_gfx.model.offset_vertex, sizeof(fl_gfx_vertices));
-	mem_copy(fl_gfx_indices,  (u8 *)target + fl_gfx.model.offset_index,  sizeof(fl_gfx_indices));
+	mem_copy(vertices, (u8 *)target + fl_gfx.model.offset_vertex, sizeof(*vertices) * vertices_count);
+	mem_copy(indices,  (u8 *)target + fl_gfx.model.offset_index,  sizeof(*indices) * indices_count);
 	vkUnmapMemory(fl_gfx.device.handle, staging_buffer_memory);
 
 	gfx_buffer_create(
@@ -2319,6 +2305,8 @@ void gfx_model_init(void) {
 	gfx_buffer_copy(staging_buffer, fl_gfx.model.handle, total_size);
 
 	gfx_buffer_destroy(staging_buffer, staging_buffer_memory);
+
+	arena_set_position(scratch, scratch_position);
 }
 
 AttrFileLocal()
@@ -2334,7 +2322,7 @@ AttrFileLocal()
 void gfx_texture_init(void) {
 	struct Arena * scratch = thread_ctx_get_scratch();
 	u64 const scratch_position = arena_get_position(scratch);
-	arr8 const file = base_file_read(scratch, "../data/check.png"); // @todo fix path
+	arr8 const file = base_file_read(scratch, "../data/viking_room.png"); // @todo fix path
 	struct Image image = image_init(file);
 
 	VkDeviceSize const total_size = image.scalar_size * image.size.x * image.size.y * image.channels;
@@ -2485,16 +2473,17 @@ void gfx_tick(void) {
 	// ---- ---- ---- ----
 
 	{
-		f32 const fov = PI32 / 2;
+		f32 const fov = PI32 / 3;
 		vec2 const vp_scale = vec2_muls(
 			(vec2){(f32)fl_gfx.swapchain.extent.height / (f32)fl_gfx.swapchain.extent.width, 1},
-			cos32(fov / 2) / sin32(fov / 2)
+			1 / tan32(fov / 2)
 		);
-		u64 const rotation_period = AsNanos(5);
-		f32 const rotation = TAU32 * (f32)(os_timer_get_nanos() % rotation_period) / (f32)rotation_period;
+		u64 const rotation_period = AsNanos(10);
+		f32 const rotation_offset = TAU32 * (f32)(os_timer_get_nanos() % rotation_period) / (f32)rotation_period;
+		f32 const rotation = (PI32 / 10) * cos32(rotation_offset);
 		struct UData const udata = {
 			.model = mat4_transformation(vec3_0, quat_axis(vec3_y1, rotation), vec3_1),
-			.view = mat4_transformation_inverse((vec3){0, 2, -2}, quat_rotation((vec3){PI32/4, 0, 0}), vec3_1),
+			.view = mat4_transformation_inverse((vec3){1.2f, 1.8f, -1.2f}, quat_rotation((vec3){PI32/4, -PI32/4, 0}), vec3_1),
 			.projection = gfx_mat4_projection(vp_scale, vec2_0, 0, 0.1f, INF32),
 		};
 		mem_copy(&udata, fl_gfx.material.udata_maps[frame], sizeof(udata));
