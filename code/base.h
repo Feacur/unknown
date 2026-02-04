@@ -674,6 +674,25 @@ struct Image image_init(arr8 const file);
 void image_free(struct Image * image);
 
 // ---- ---- ---- ----
+// models
+// ---- ---- ---- ----
+
+struct Model_Vertex {
+	vec3 position;
+	vec2 texture;
+	vec3 normal;
+};
+
+struct Model;
+struct Model * model_init(char const * name);
+void model_free(struct Model * model);
+
+void model_dump_vertices(struct Model * model, struct Arena * scratch,
+	struct Model_Vertex ** out_vertices, u32 * out_vertices_count,
+	u16                 ** out_indices,  u16 * out_indices_count
+);
+
+// ---- ---- ---- ----
 // debugging
 // ---- ---- ---- ----
 

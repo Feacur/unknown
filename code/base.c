@@ -1108,3 +1108,97 @@ void image_free(struct Image * image) {
 	STBI_FREE(image->buffer);
 	mem_zero(image, sizeof(*image));
 }
+
+// ---- ---- ---- ----
+// models
+// ---- ---- ---- ----
+
+#define TINYOBJ_MALLOC(size)           os_memory_heap(NULL,    size)
+#define TINYOBJ_REALLOC(pointer, size) os_memory_heap(pointer, size)
+#define TINYOBJ_CALLOC(number, size)   os_memory_heap(NULL,    number * size)
+#define TINYOBJ_FREE(pointer)          os_memory_heap(pointer, 0)
+
+#define TINYOBJ_LOADER_C_IMPLEMENTATION
+
+#include "_internal/warnings_push.h"
+# include <tinyobj_loader_c.h>
+#include "_internal/warnings_pop.h"
+
+struct Model {
+	tinyobj_attrib_t     attrib;
+	tinyobj_shape_t    * shapes;    size_t shapes_num;
+	tinyobj_material_t * materials; size_t materials_num;
+	int status;
+};
+
+AttrFileLocal()
+void model_init_read_file(void *ctx, const char *filename, int is_mtl, const char *obj_filename, char **buf, size_t *len) {
+	struct Arena * scratch = ctx;
+	arr8 const file = base_file_read(scratch, filename);
+	*buf = (void *)file.buffer;
+	*len = file.count;
+}
+
+struct Model * model_init(char const * name) {
+	struct Arena * scratch = thread_ctx_get_scratch();
+	u64 const scratch_position = arena_get_position(scratch);
+
+	struct Model * model = os_memory_heap(NULL, sizeof(*model));
+	model->status = tinyobj_parse_obj(&model->attrib,
+		&model->shapes, &model->shapes_num,
+		&model->materials, &model->materials_num,
+		name, model_init_read_file, scratch,
+		TINYOBJ_FLAG_TRIANGULATE
+	);
+
+	arena_set_position(scratch, scratch_position);
+	return model;
+}
+
+void model_free(struct Model * model) {
+	tinyobj_attrib_free(&model->attrib);
+	if (model->shapes) tinyobj_shapes_free(model->shapes, model->shapes_num);
+	if (model->materials) tinyobj_materials_free(model->materials, model->materials_num);
+	mem_zero(model, sizeof(*model));
+	os_memory_heap(model, 0);
+}
+
+void model_dump_vertices(struct Model * model, struct Arena * scratch,
+	struct Model_Vertex ** out_vertices, u32 * out_vertices_count,
+	u16                 ** out_indices,  u16 * out_indices_count
+) {
+	u32 const indices_count        = model->attrib.num_faces;
+	struct Model_Vertex * vertices = ArenaPushArray(scratch, struct Model_Vertex, indices_count);
+	u16                 * indices  = ArenaPushArray(scratch, u16,                 indices_count);
+
+	*out_vertices = vertices; *out_vertices_count = indices_count;
+	*out_indices  = indices;  *out_indices_count  = (u16)indices_count;
+
+	u16 index = 0;
+	for (u32 i = 0; i < indices_count; i++) {
+		tinyobj_vertex_index_t const in_triangle = model->attrib.faces[i];
+		struct Model_Vertex out_triangle = {0};
+		if (in_triangle.v_idx >= 0) {
+			out_triangle.position = (vec3){
+				.x = model->attrib.vertices[3 * in_triangle.v_idx + 0],
+				.y = model->attrib.vertices[3 * in_triangle.v_idx + 1],
+				.z = model->attrib.vertices[3 * in_triangle.v_idx + 2],
+			};
+		}
+		if (in_triangle.vt_idx >= 0) {
+			out_triangle.texture = (vec2){
+				.x = model->attrib.texcoords[2 * in_triangle.vt_idx + 0],
+				.y = model->attrib.texcoords[2 * in_triangle.vt_idx + 1],
+			};
+		}
+		if (in_triangle.vn_idx >= 0) {
+			out_triangle.normal = (vec3){
+				.x = model->attrib.normals[3 * in_triangle.vn_idx + 0],
+				.y = model->attrib.normals[3 * in_triangle.vn_idx + 1],
+				.z = model->attrib.normals[3 * in_triangle.vn_idx + 2],
+			};
+		}
+		*vertices++ = out_triangle;
+		*indices++ = index++;
+	}
+}

@@ -1,3 +1,5 @@
+// @note this is a GLSL shader include file
+
 #if !defined (UKWN_PROJECT_INC)
 #define UKWN_PROJECT_INC
 
