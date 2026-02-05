@@ -8,4 +8,6 @@ void gfx_free(void);
 
 void gfx_tick(void);
 
+void gfx_notify_surface_resized(void);
+
 #endif

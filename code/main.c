@@ -1,6 +1,11 @@
 #include "os.h"
 #include "gfx.h"
 
+AttrFileLocal()
+void main_on_resize(void) {
+	gfx_notify_surface_resized();
+}
+
 int main(int argc, char * argv[]) {
 	fmt_print("[main] args:\n");
 	for (int i = 0; i < argc; i++) {
@@ -12,6 +17,7 @@ int main(int argc, char * argv[]) {
 		.window_size_x = 900,
 		.window_size_y = 600,
 		.window_caption = "unknown",
+		.on_resize = main_on_resize,
 	});
 	thread_ctx_init();
 	gfx_init();
