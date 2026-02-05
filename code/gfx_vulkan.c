@@ -24,6 +24,8 @@ reverse Z
 
 #define GFX_REVERSE_Z 0
 #define GFX_FRAMES_IN_FLIGHT 2
+#define GFX_PREFER_SRGB 0
+#define GFX_PREFER_VSYNC_OFF 0
 #define GFX_DEFINE_PROC(name) PFN_ ## name name = (PFN_ ## name)gfx_get_instance_proc(#name)
 #define GFX_ENABLE_DEBUG (BUILD_DEBUG == BUILD_DEBUG_ENABLE)
 
@@ -1071,6 +1073,11 @@ void gfx_device_init(void) {
 	};
 
 	VkFormat const surface_format_preferences[] = {
+		// @note RivaTuner Statistics Server doesn't work great with sRGB formats
+		#if GFX_PREFER_SRGB
+		VK_FORMAT_R8G8B8A8_SRGB,
+		VK_FORMAT_B8G8R8A8_SRGB,
+		#endif
 		VK_FORMAT_R8G8B8A8_UNORM,
 		VK_FORMAT_B8G8R8A8_UNORM,
 	};
@@ -1095,6 +1102,9 @@ void gfx_device_init(void) {
 	fl_gfx.device.physical.present_mode = VK_PRESENT_MODE_MAX_ENUM_KHR;
 
 	VkPresentModeKHR const present_mode_preferences[] = {
+		#if GFX_PREFER_VSYNC_OFF
+		VK_PRESENT_MODE_IMMEDIATE_KHR,
+		#endif
 		VK_PRESENT_MODE_MAILBOX_KHR,
 		VK_PRESENT_MODE_FIFO_KHR,
 	};
@@ -2617,6 +2627,8 @@ mat4 gfx_mat4_projection(
 
 #undef GFX_REVERSE_Z
 #undef GFX_FRAMES_IN_FLIGHT
+#undef GFX_PREFER_SRGB
+#undef GFX_PREFER_VSYNC_OFF
 #undef GFX_DEFINE_PROC
 #undef GFX_ENABLE_DEBUG
 
