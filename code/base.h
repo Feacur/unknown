@@ -117,6 +117,20 @@ struct String_U32 {
 };
 
 // ---- ---- ---- ----
+// types, table
+// ---- ---- ---- ----
+
+typedef u32 Table_Hash(void const * key);
+typedef struct Table tbl;
+struct Table {
+	Table_Hash * hash;
+	size_t key_size, val_size;
+	size_t capacity, count;
+	void * keys, * vals;
+	u8 * marks;
+};
+
+// ---- ---- ---- ----
 // types, f32 math
 // ---- ---- ---- ----
 
@@ -198,8 +212,10 @@ char * base_get_str(char * buffer, int limit);
 
 void mem_zero(void * target, size_t size);
 void mem_copy(void const * source, void * target, size_t size);
+bool mem_equals(void const * source, void const * target, size_t size);
 bool str_equals(char const * v1, char const * v2);
 
+size_t next_po2_size(size_t value);
 size_t align_size(size_t value, size_t align);
 
 u64 mul_div_u64(u64 value, u64 mul, u64 div);
@@ -331,6 +347,18 @@ long clamp_long(long v, long min, long max);
 size_t clamp_size(size_t v, size_t min, size_t max);
 
 // ---- ---- ---- ----
+// functions, hashing
+// ---- ---- ---- ----
+
+u32 hash32_fnv1(void const * value, size_t size);
+u32 hash32_djb2(void const * value, size_t size);
+u32 hash32_xorshift(u32 value);
+
+u64 hash64_fnv1(void const * value, size_t size);
+u64 hash64_djb2(void const * value, size_t size);
+u64 hash64_xorshift(u64 value);
+
+// ---- ---- ---- ----
 // functions, array
 // ---- ---- ---- ----
 
@@ -345,6 +373,22 @@ void arr32_append_unique(arr32 * target, u32 value);
 void str8_append(str8 * target, str8 value);
 void str16_append(str16 * target, str16 value);
 void str32_append(str32 * target, str32 value);
+
+// ---- ---- ---- ----
+// functions, table
+// ---- ---- ---- ----
+
+struct Table table_init(Table_Hash * hash, size_t key_size, size_t val_size);
+void table_free(struct Table * table);
+
+void table_allocate_scratch(struct Table * table, struct Arena * scratch, size_t count);
+void table_ensure_capacity(struct Table * table, size_t count);
+
+void * table_get(struct Table * table, void const * key);
+void table_set(struct Table * table, void const * key, void const * val);
+
+void table_remove(struct Table * table, void const * key);
+bool table_get_or_set(struct Table * table, void const * key, void * val);
 
 // ---- ---- ---- ----
 // functions, f32 math, vector
