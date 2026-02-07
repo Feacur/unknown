@@ -25,6 +25,7 @@ set temp=%root%/temp
 
 rem prepare directories
 if not exist "build" mkdir "build"
+if not exist "build/data" mkdir "build/data"
 if not exist "temp"  mkdir "temp"
 
 del "build\*" /s /q > nul
@@ -125,8 +126,8 @@ goto :eof
 
 		%resc% "%project%/windows_main.rc" -fo "windows_main.res"
 
-		%vertc% "%data%/shader.glsl" -o shader.vert.spirv
-		%fragc% "%data%/shader.glsl" -o shader.frag.spirv
+		%vertc% "%data%/shader.glsl" -o data/shader_vert.spirv
+		%fragc% "%data%/shader.glsl" -o data/shader_frag.spirv
 	) | pause > nul
 
 	rem link
