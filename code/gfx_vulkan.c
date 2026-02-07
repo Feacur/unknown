@@ -1974,13 +1974,13 @@ void gfx_graphics_pipeline_init(void) {
 		{
 			.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
 			.stage = VK_SHADER_STAGE_VERTEX_BIT,
-			.module = gfx_shader_module_create("shader.vert.spirv"),
+			.module = gfx_shader_module_create("data/shader_vert.spirv"),
 			.pName = "main",
 		},
 		{
 			.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
 			.stage = VK_SHADER_STAGE_FRAGMENT_BIT,
-			.module = gfx_shader_module_create("shader.frag.spirv"),
+			.module = gfx_shader_module_create("data/shader_frag.spirv"),
 			.pName = "main",
 		},
 	};
