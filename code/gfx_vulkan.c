@@ -1140,16 +1140,12 @@ void gfx_device_init(void) {
 	fmt_print("- present mode:   %.*s\n", (int)present_mode_text.count, present_mode_text.buffer);
 	fmt_print("\n");
 
-	uint32_t queue_families_buffer[4];
-	arr32 queue_families = {
-		.capacity = ArrayCount(queue_families_buffer),
-		.buffer = queue_families_buffer,
-	};
+	arr32 queue_families = {.capacity = 4, .buffer = (uint32_t[4]){0}};
 	arr32_append_unique(&queue_families, fl_gfx.device.physical.main_qfamily_index);
 	arr32_append_unique(&queue_families, fl_gfx.device.physical.present_qfamily_index);
 	arr32_append_unique(&queue_families, fl_gfx.device.physical.transfer_qfamily_index);
 
-	VkDeviceQueueCreateInfo queue_infos[ArrayCount(queue_families_buffer)];
+	VkDeviceQueueCreateInfo queue_infos[4];
 	for (uint32_t i = 0; i < queue_families.count; i++)
 		queue_infos[i] = (VkDeviceQueueCreateInfo){
 			.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO,
@@ -1275,11 +1271,7 @@ void gfx_image_create(
 	VkImageUsageFlags usage_flags, VkMemoryPropertyFlags property_flags,
 	VkImage * out_image, VkDeviceMemory * out_memory
 ) {
-	uint32_t queue_families_buffer[2];
-	arr32 queue_families = {
-		.capacity = ArrayCount(queue_families_buffer),
-		.buffer = queue_families_buffer,
-	};
+	arr32 queue_families = {.capacity = 2, .buffer = (uint32_t[2]){0}};
 	arr32_append_unique(&queue_families, fl_gfx.device.physical.main_qfamily_index);
 	arr32_append_unique(&queue_families, fl_gfx.device.physical.transfer_qfamily_index);
 
@@ -1696,11 +1688,7 @@ void gfx_swapchain_init(VkSwapchainKHR old_swapchain) {
 	// swapchain
 	// ---- ---- ---- ----
 
-	uint32_t queue_families_buffer[2];
-	arr32 queue_families = {
-		.capacity = ArrayCount(queue_families_buffer),
-		.buffer = queue_families_buffer,
-	};
+	arr32 queue_families = {.capacity = 2, .buffer = (uint32_t[2]){0}};
 	arr32_append_unique(&queue_families, fl_gfx.device.physical.main_qfamily_index);
 	arr32_append_unique(&queue_families, fl_gfx.device.physical.present_qfamily_index);
 
@@ -1842,11 +1830,7 @@ void gfx_buffer_create(
 	VkBufferUsageFlags usage_flags, VkMemoryPropertyFlags property_flags,
 	VkBuffer * out_buffer, VkDeviceMemory * out_memory
 ) {
-	uint32_t queue_families_buffer[2];
-	arr32 queue_families = {
-		.capacity = ArrayCount(queue_families_buffer),
-		.buffer = queue_families_buffer,
-	};
+	arr32 queue_families = {.capacity = 2, .buffer = (uint32_t[2]){0}};
 	arr32_append_unique(&queue_families, fl_gfx.device.physical.main_qfamily_index);
 	arr32_append_unique(&queue_families, fl_gfx.device.physical.transfer_qfamily_index);
 
