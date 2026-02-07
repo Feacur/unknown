@@ -262,8 +262,26 @@ void mem_copy(void const * source, void * target, size_t size) {
 	memcpy(target, source, size);
 }
 
+bool mem_equals(void const * source, void const * target, size_t size) {
+	return memcmp(target, source, size) == 0;
+}
+
 bool str_equals(char const * v1, char const * v2) {
 	return strcmp(v1, v2) == 0;
+}
+
+size_t next_po2_size(size_t value) {
+	value -= 1;
+	value |= value >>  1;
+	value |= value >>  2;
+	value |= value >>  4;
+	if (sizeof(size_t) >= sizeof(u16))
+		value |= value >>  8;
+	if (sizeof(size_t) >= sizeof(u32))
+		value |= value >> 16;
+	if (sizeof(size_t) >= sizeof(u64))
+		value |= value >> 32;
+	return value + 1;
 }
 
 size_t align_size(size_t value, size_t align) {
@@ -423,6 +441,54 @@ long clamp_long(long v, long min, long max) { return v < min ? min : v > max ? m
 size_t clamp_size(size_t v, size_t min, size_t max) { return v < min ? min : v > max ? max : v; }
 
 // ---- ---- ---- ----
+// functions, hashing
+// ---- ---- ---- ----
+
+u32 hash32_fnv1(void const * value, size_t size) {
+	u32 const prime =   16777619u;
+	u32       hash  = 2166136261u;
+	for (size_t i = 0; i < size; i++)
+		hash = (hash * prime) ^ ((u8*)value)[i];
+	return hash;
+}
+
+u32 hash32_djb2(void const * value, size_t size) {
+	u32 hash = 5381u;
+	for (size_t i = 0; i < size; i++)
+		hash = ((hash << 5) + hash) ^ ((u8*)value)[i];
+	return hash;
+}
+
+u32 hash32_xorshift(u32 value) {
+	value ^= value << 13;
+	value ^= value >> 17;
+	value ^= value <<  5;
+	return value;
+}
+
+u64 hash64_fnv1(void const * value, size_t size) {
+	u64 const prime =        1099511628211ull;
+	u64       hash  = 14695981039346656037ull;
+	for (size_t i = 0; i < size; i++)
+		hash = (hash * prime) ^ ((u8*)value)[i];
+	return hash;
+}
+
+u64 hash64_djb2(void const * value, size_t size) {
+	u64 hash = 5381ull;
+	for (size_t i = 0; i < size; i++)
+		hash = ((hash << 5) + hash) ^ ((u8*)value)[i];
+	return hash;
+}
+
+u64 hash64_xorshift(u64 value) {
+	value ^= value << 13;
+	value ^= value >>  7;
+	value ^= value << 17;
+	return value;
+}
+
+// ---- ---- ---- ----
 // functions, array
 // ---- ---- ---- ----
 
@@ -445,6 +511,124 @@ void arr32_append_unique(arr32 * target, u32 value) {
 		if (target->buffer[i] == value)
 			return;
 	target->buffer[target->count++] = value;
+}
+
+// ---- ---- ---- ----
+// functions, table
+// ---- ---- ---- ----
+
+enum Table_Mark {
+	TABLE_MARK_NONE,
+	TABLE_MARK_FULL,
+	TABLE_MARK_SKIP,
+};
+
+AttrFileLocal()
+size_t table_find_index(struct Table const * table, void const * key) {
+	size_t empty = SIZE_MAX;
+	if (table->count >= table->capacity)
+		return empty;
+
+	u32 const hash = table->hash(key);
+	size_t const mask = table->capacity - 1;
+	size_t const base = hash & mask;
+	for (size_t i = 0; i < table->capacity; i++) {
+		size_t const index = (base + i) & mask;
+		u8 const mark = table->marks[index];
+		if (mark == TABLE_MARK_FULL) {
+			void const * table_key = (u8*)table->keys + index * table->key_size;
+			u32  const   table_hash = table->hash(table_key);
+			if (table_hash == hash && mem_equals(table_key, key, table->key_size))
+				return index;
+		}
+		else {
+			if (empty == SIZE_MAX) empty = index;
+			if (mark == TABLE_MARK_NONE) break;
+		}
+	}
+
+	return empty;
+}
+
+struct Table table_init(Table_Hash * hash, size_t key_size, size_t val_size) {
+	struct Table table = {.hash = hash, .key_size = key_size, .val_size = val_size};
+	return table;
+}
+
+void table_free(struct Table * table) {
+	os_memory_heap(table->keys, 0);
+	os_memory_heap(table->vals, 0);
+	os_memory_heap(table->marks, 0);
+	mem_zero(table, sizeof(*table));
+}
+
+void table_allocate_scratch(struct Table * table, struct Arena * scratch, size_t count) {
+	table->capacity = max_size(next_po2_size(count), table->capacity);
+	table->keys  = arena_push(scratch, table->capacity * table->key_size, clamp_size(table->key_size, sizeof(u8), sizeof(u64)) );
+	table->vals  = arena_push(scratch, table->capacity * table->val_size, clamp_size(table->val_size, sizeof(u8), sizeof(u64)) );
+	table->marks = arena_push(scratch, table->capacity * sizeof(u8),      sizeof(u8));
+}
+
+void table_ensure_capacity(struct Table * table, size_t count) {
+	void * keys = table->keys;
+	void * vals = table->vals;
+	u8   * marks = table->marks;
+
+	size_t const prev_capacity = table->capacity;
+	table->capacity = max_size(next_po2_size(count), table->capacity); table->count = 0;
+	table->keys = os_memory_heap(NULL, table->capacity * table->key_size);
+	table->vals = os_memory_heap(NULL, table->capacity * table->val_size);
+	table->marks = os_memory_heap(NULL, table->capacity * sizeof(u8));
+
+	for (size_t i = 0; i < prev_capacity; i++) {
+		if (marks[i] != TABLE_MARK_FULL) continue;
+		void const * key  = (u8*)keys + i * table->key_size;
+		void const * val  = (u8*)vals + i * table->val_size;
+		table_set(table, key, val);
+	}
+
+	os_memory_heap(keys, 0);
+	os_memory_heap(vals, 0);
+	os_memory_heap(marks, 0);
+}
+
+void * table_get(struct Table * table, void const * key) {
+	size_t const index = table_find_index(table, key);
+	if (index >= table->capacity) return NULL;
+	if (table->marks[index] == TABLE_MARK_FULL)
+		return (u8*)table->vals + index * table->val_size;
+	return NULL;
+}
+
+void table_set(struct Table * table, void const * key, void const * val) {
+	size_t const index = table_find_index(table, key);
+	Assert(index < table->capacity, "[base] table overflow");
+	mem_copy(key, (u8*)table->keys + index * table->key_size, table->key_size);
+	mem_copy(val, (u8*)table->vals + index * table->val_size, table->val_size);
+	if (table->marks[index] != TABLE_MARK_FULL) table->count++;
+	table->marks[index] = TABLE_MARK_FULL;
+}
+
+void table_remove(struct Table * table, void const * key) {
+	size_t const index = table_find_index(table, key);
+	Assert(index < table->capacity, "[base] table overflow");
+	if (table->marks[index] != TABLE_MARK_FULL) return;
+	table->marks[index] = TABLE_MARK_SKIP;
+	table->count--;
+}
+
+bool table_get_or_set(struct Table * table, void const * key, void * val) {
+	size_t const index = table_find_index(table, key);
+	Assert(index < table->capacity, "[base] table overflow");
+	if (table->marks[index] == TABLE_MARK_FULL) {
+		mem_copy((u8*)table->vals + index * table->val_size, val, table->val_size);
+		return true;
+	}
+	mem_copy(key, (u8*)table->keys + index * table->key_size, table->key_size);
+	mem_copy(val, (u8*)table->vals + index * table->val_size, table->val_size);
+	table->marks[index] = TABLE_MARK_FULL;
+	table->count++;
+	return false;
 }
 
 // ---- ---- ---- ----
@@ -1132,6 +1316,37 @@ struct Model {
 };
 
 AttrFileLocal()
+u32 model_hash_tovi(void const * opaque) {
+	return hash32_fnv1(opaque, sizeof(tinyobj_vertex_index_t));
+}
+
+AttrFileLocal()
+struct Model_Vertex model_tovi_to_vertex(struct Model * model, tinyobj_vertex_index_t tovi) {
+	struct Model_Vertex vertex = {0};
+	if (tovi.v_idx >= 0) {
+		vertex.position = (vec3){
+			.x = model->attrib.vertices[3 * tovi.v_idx + 0],
+			.y = model->attrib.vertices[3 * tovi.v_idx + 1],
+			.z = model->attrib.vertices[3 * tovi.v_idx + 2],
+		};
+	}
+	if (tovi.vt_idx >= 0) {
+		vertex.texture = (vec2){
+			.x = model->attrib.texcoords[2 * tovi.vt_idx + 0],
+			.y = model->attrib.texcoords[2 * tovi.vt_idx + 1],
+		};
+	}
+	if (tovi.vn_idx >= 0) {
+		vertex.normal = (vec3){
+			.x = model->attrib.normals[3 * tovi.vn_idx + 0],
+			.y = model->attrib.normals[3 * tovi.vn_idx + 1],
+			.z = model->attrib.normals[3 * tovi.vn_idx + 2],
+		};
+	}
+	return vertex;
+}
+
+AttrFileLocal()
 void model_init_read_file(void *ctx, const char *filename, int is_mtl, const char *obj_filename, char **buf, size_t *len) {
 	struct Arena * scratch = ctx;
 	arr8 const file = base_file_read(scratch, filename);
@@ -1170,35 +1385,22 @@ void model_dump_vertices(struct Model * model, struct Arena * scratch,
 	u32 const indices_count        = model->attrib.num_faces;
 	struct Model_Vertex * vertices = ArenaPushArray(scratch, struct Model_Vertex, indices_count);
 	u16                 * indices  = ArenaPushArray(scratch, u16,                 indices_count);
+	*out_vertices = vertices; *out_indices  = indices;
 
-	*out_vertices = vertices; *out_vertices_count = indices_count;
-	*out_indices  = indices;  *out_indices_count  = (u16)indices_count;
+	tbl tovi_to_index = table_init(&model_hash_tovi, sizeof(tinyobj_vertex_index_t), sizeof(u16));
+	table_allocate_scratch(&tovi_to_index, scratch, indices_count);
 
-	u16 index = 0;
+	u16 unique_vertices_count = 0;
 	for (u32 i = 0; i < indices_count; i++) {
-		tinyobj_vertex_index_t const in_triangle = model->attrib.faces[i];
-		struct Model_Vertex out_triangle = {0};
-		if (in_triangle.v_idx >= 0) {
-			out_triangle.position = (vec3){
-				.x = model->attrib.vertices[3 * in_triangle.v_idx + 0],
-				.y = model->attrib.vertices[3 * in_triangle.v_idx + 1],
-				.z = model->attrib.vertices[3 * in_triangle.v_idx + 2],
-			};
+		tinyobj_vertex_index_t const tovi = model->attrib.faces[i];
+		u16 index = unique_vertices_count;
+		if (!table_get_or_set(&tovi_to_index, &tovi, &index)) {
+			*vertices++ = model_tovi_to_vertex(model, tovi);
+			unique_vertices_count++;
 		}
-		if (in_triangle.vt_idx >= 0) {
-			out_triangle.texture = (vec2){
-				.x = model->attrib.texcoords[2 * in_triangle.vt_idx + 0],
-				.y = model->attrib.texcoords[2 * in_triangle.vt_idx + 1],
-			};
-		}
-		if (in_triangle.vn_idx >= 0) {
-			out_triangle.normal = (vec3){
-				.x = model->attrib.normals[3 * in_triangle.vn_idx + 0],
-				.y = model->attrib.normals[3 * in_triangle.vn_idx + 1],
-				.z = model->attrib.normals[3 * in_triangle.vn_idx + 2],
-			};
-		}
-		*vertices++ = out_triangle;
-		*indices++ = index++;
+		*indices++ = index;
 	}
+
+	*out_vertices_count = unique_vertices_count;
+	*out_indices_count = (u16)indices_count;
 }
