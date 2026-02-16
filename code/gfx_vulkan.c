@@ -606,6 +606,104 @@ void * gfx_get_instance_proc(char const * name) {
 }
 
 // ---- ---- ---- ----
+// utilities
+// ---- ---- ---- ----
+
+AttrFileLocal()
+bool gfx_is_format_supported(VkFormat format, VkImageTiling tiling, VkFormatFeatureFlags features) {
+	VkFormatProperties properties;
+	vkGetPhysicalDeviceFormatProperties(fl_gfx.device.physical.handle, format, &properties);
+	switch (tiling) {
+		case VK_IMAGE_TILING_LINEAR:  return (properties.linearTilingFeatures  & features) == features;
+		case VK_IMAGE_TILING_OPTIMAL: return (properties.optimalTilingFeatures & features) == features;
+		default:                      return false;
+	}
+}
+
+AttrFileLocal()
+uint32_t gfx_find_memory_type_index(uint32_t bits, VkMemoryPropertyFlags flags) {
+	for (uint32_t i = 0; i < fl_gfx.device.physical.memory_properties.memoryTypeCount; i++) {
+		VkMemoryType const it = fl_gfx.device.physical.memory_properties.memoryTypes[i];
+		if ((it.propertyFlags & flags) != flags)
+			continue;
+
+		uint32_t const mask = 1 << i;
+		if (!(mask & bits))
+			continue;
+
+		return i;
+	}
+
+	AssertF(false, "can't find memory property with bits %#b and flags %#b\n", bits, flags);
+	return 0;
+}
+
+AttrFileLocal()
+VkSampleCountFlagBits gfx_find_max_sample_count(void) {
+	AttrFuncLocal() VkSampleCountFlagBits const bits[] = {
+		VK_SAMPLE_COUNT_64_BIT,
+		VK_SAMPLE_COUNT_32_BIT,
+		VK_SAMPLE_COUNT_16_BIT,
+		VK_SAMPLE_COUNT_4_BIT,
+		VK_SAMPLE_COUNT_8_BIT,
+		VK_SAMPLE_COUNT_2_BIT,
+	};
+	VkFlags const limits = fl_gfx.device.physical.properties.limits.framebufferColorSampleCounts
+	/**/                 & fl_gfx.device.physical.properties.limits.framebufferDepthSampleCounts;
+	for (uint32_t i = 0; i < ArrayCount(bits); i++) {
+		if (limits & (VkFlags)bits[i])
+			return bits[i];
+	}
+	return VK_SAMPLE_COUNT_1_BIT;
+}
+
+AttrFileLocal()
+VkFormat gfx_find_depth_format(void) {
+	VkFormat const candidates[] = {
+		VK_FORMAT_D32_SFLOAT,
+		VK_FORMAT_D32_SFLOAT_S8_UINT,
+		VK_FORMAT_D24_UNORM_S8_UINT,
+		VK_FORMAT_D16_UNORM_S8_UINT,
+	};
+	for (uint32_t i = 0; i < ArrayCount(candidates); i++) {
+		if (gfx_is_format_supported(candidates[i], VK_IMAGE_TILING_OPTIMAL, VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT))
+			return candidates[i];
+	}
+	Assert(false, "can't find depth format\n");
+	return VK_FORMAT_UNDEFINED;
+}
+
+AttrFileLocal()
+VkImageAspectFlags gfx_find_depth_aspect(VkFormat format) {
+	switch (format) {
+		default:
+			Assert(false, "can't find depth aspect");
+			return 0;
+		case VK_FORMAT_D32_SFLOAT:
+			return VK_IMAGE_ASPECT_DEPTH_BIT;
+		case VK_FORMAT_D32_SFLOAT_S8_UINT:
+		case VK_FORMAT_D24_UNORM_S8_UINT:
+		case VK_FORMAT_D16_UNORM_S8_UINT:
+			return VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT;
+	}
+}
+
+AttrFileLocal()
+VkImageLayout gfx_find_depth_layout(VkFormat format) {
+	switch (format) {
+		default:
+			Assert(false, "can't find depth layout");
+			return 0;
+		case VK_FORMAT_D32_SFLOAT:
+			return VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
+		case VK_FORMAT_D32_SFLOAT_S8_UINT:
+		case VK_FORMAT_D24_UNORM_S8_UINT:
+		case VK_FORMAT_D16_UNORM_S8_UINT:
+			return VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+	}
+}
+
+// ---- ---- ---- ----
 // image view
 // ---- ---- ---- ----
 
@@ -1183,81 +1281,6 @@ void gfx_device_init(void) {
 AttrFileLocal()
 void gfx_device_free(void) {
 	vkDestroyDevice(fl_gfx.device.handle, &fl_gfx_allocator);
-}
-
-AttrFileLocal()
-uint32_t gfx_find_memory_type_index(uint32_t bits, VkMemoryPropertyFlags flags) {
-	for (uint32_t i = 0; i < fl_gfx.device.physical.memory_properties.memoryTypeCount; i++) {
-		VkMemoryType const it = fl_gfx.device.physical.memory_properties.memoryTypes[i];
-		if ((it.propertyFlags & flags) != flags)
-			continue;
-
-		uint32_t const mask = 1 << i;
-		if (!(mask & bits))
-			continue;
-
-		return i;
-	}
-
-	AssertF(false, "can't find memory property with bits %#b and flags %#b\n", bits, flags);
-	return 0;
-}
-
-AttrFileLocal()
-bool gfx_is_format_supported(VkFormat format, VkImageTiling tiling, VkFormatFeatureFlags features) {
-	VkFormatProperties properties;
-	vkGetPhysicalDeviceFormatProperties(fl_gfx.device.physical.handle, format, &properties);
-	switch (tiling) {
-		case VK_IMAGE_TILING_LINEAR:  return (properties.linearTilingFeatures  & features) == features;
-		case VK_IMAGE_TILING_OPTIMAL: return (properties.optimalTilingFeatures & features) == features;
-		default:                      return false;
-	}
-}
-
-AttrFileLocal()
-VkFormat gfx_find_depth_format(void) {
-	VkFormat const candidates[] = {
-		VK_FORMAT_D32_SFLOAT,
-		VK_FORMAT_D32_SFLOAT_S8_UINT,
-		VK_FORMAT_D24_UNORM_S8_UINT,
-		VK_FORMAT_D16_UNORM_S8_UINT,
-	};
-	for (uint32_t i = 0; i < ArrayCount(candidates); i++) {
-		if (gfx_is_format_supported(candidates[i], VK_IMAGE_TILING_OPTIMAL, VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT))
-			return candidates[i];
-	}
-	Assert(false, "can't find depth format\n");
-	return VK_FORMAT_UNDEFINED;
-}
-
-AttrFileLocal()
-VkImageAspectFlags gfx_find_depth_aspect(VkFormat format) {
-	switch (format) {
-		default:
-			Assert(false, "can't find depth aspect");
-			return 0;
-		case VK_FORMAT_D32_SFLOAT:
-			return VK_IMAGE_ASPECT_DEPTH_BIT;
-		case VK_FORMAT_D32_SFLOAT_S8_UINT:
-		case VK_FORMAT_D24_UNORM_S8_UINT:
-		case VK_FORMAT_D16_UNORM_S8_UINT:
-			return VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT;
-	}
-}
-
-AttrFileLocal()
-VkImageLayout gfx_find_depth_layout(VkFormat format) {
-	switch (format) {
-		default:
-			Assert(false, "can't find depth layout");
-			return 0;
-		case VK_FORMAT_D32_SFLOAT:
-			return VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
-		case VK_FORMAT_D32_SFLOAT_S8_UINT:
-		case VK_FORMAT_D24_UNORM_S8_UINT:
-		case VK_FORMAT_D16_UNORM_S8_UINT:
-			return VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
-	}
 }
 
 // ---- ---- ---- ----
