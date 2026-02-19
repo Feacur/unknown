@@ -2,19 +2,19 @@
 #define UKWN_PROJECT_H
 
 #if defined (__clang__) || defined (__GNUC__)
-// @note enable a lot of warnings
+// enable a lot of warnings
 # pragma GCC diagnostic warning "-Wall"
 # pragma GCC diagnostic warning "-Wextra"
 # pragma GCC diagnostic warning "-Wconversion"
 # pragma GCC diagnostic warning "-Wdouble-promotion"
 
-// @note disable some of them
+// disable some of them
 # pragma GCC diagnostic ignored "-Wunused-function"
 # pragma GCC diagnostic ignored "-Wunused-variable"
 # pragma GCC diagnostic ignored "-Wunused-parameter"
 # pragma GCC diagnostic ignored "-Wunused-local-typedef"
 
-// @note turn others into errors
+// turn others into errors
 # pragma GCC diagnostic error "-Wimplicit-int"
 # pragma GCC diagnostic error "-Wimplicit-fallthrough"
 # pragma GCC diagnostic error "-Wimplicit-function-declaration"

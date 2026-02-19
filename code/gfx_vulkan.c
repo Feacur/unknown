@@ -503,6 +503,18 @@ struct GFX_Texture {
 	VkImageView    view;
 };
 
+struct GFX_QFamilies { // @note values are `index + 1`
+	uint32_t main;
+	uint32_t present;
+	uint32_t transfer;
+};
+
+struct GFX_Queues {
+	VkQueue main;
+	VkQueue present;
+	VkQueue transfer;
+};
+
 AttrFileLocal()
 struct GFX {
 	// instance
@@ -514,18 +526,16 @@ struct GFX {
 	struct GFX_Device_Logical {
 		struct GFX_Device_Physical {
 			VkPhysicalDevice handle;
-			uint32_t main_qfamily_index;
-			uint32_t present_qfamily_index;
-			uint32_t transfer_qfamily_index;
+			// cached
 			VkPhysicalDeviceProperties properties;
+			VkPhysicalDeviceMemoryProperties memory_properties;
+			// choices
+			struct GFX_QFamilies qfamily;
 			VkSurfaceFormatKHR surface_format;
 			VkPresentModeKHR present_mode;
-			VkPhysicalDeviceMemoryProperties memory_properties;
 		} physical;
 		VkDevice handle;
-		VkQueue main_queue;
-		VkQueue present_queue;
-		VkQueue transfer_queue;
+		struct GFX_Queues queue;
 	} device;
 	// samplers
 	VkSampler sampler;
@@ -979,7 +989,6 @@ void gfx_device_init(void) {
 	// filter out devices
 	// ---- ---- ---- ----
 
-	AttrFuncLocal()
 	char const * const required_extensions[] = {
 		VK_KHR_SWAPCHAIN_EXTENSION_NAME,
 	};
@@ -1014,11 +1023,8 @@ void gfx_device_init(void) {
 	// properties
 	// ---- ---- ---- ----
 
-	VkPhysicalDeviceProperties * physical_device_properties = ArenaPushArray(scratch, VkPhysicalDeviceProperties, physical_devices_count);
-	for (uint32_t i = 0; i < physical_devices_count; i++) {
-		VkPhysicalDeviceProperties * properties = &physical_device_properties[i];
-		vkGetPhysicalDeviceProperties(physical_devices[i], properties);
-	}
+	VkPhysicalDeviceProperties * physical_devices_properties = ArenaPushArray(scratch, VkPhysicalDeviceProperties, physical_devices_count);
+	for (uint32_t i = 0; i < physical_devices_count; i++) vkGetPhysicalDeviceProperties(physical_devices[i], physical_devices_properties + i);
 
 	uint32_t * qfamilies_counts = ArenaPushArray(scratch, uint32_t, physical_devices_count);
 	VkQueueFamilyProperties ** qfamily_properties_set = ArenaPushArray(scratch, VkQueueFamilyProperties *, physical_devices_count);
@@ -1044,9 +1050,9 @@ void gfx_device_init(void) {
 	for (uint32_t i = 0; i < physical_devices_count; i++) {
 		VkPhysicalDevice const handle = physical_devices[i];
 
-		VkPhysicalDeviceProperties const properties = physical_device_properties[i];
-		uint32_t qfamilies_count = qfamilies_counts[i];
-		VkQueueFamilyProperties * qfamilies_properties = qfamily_properties_set[i];
+		VkPhysicalDeviceProperties const   properties           = physical_devices_properties[i];
+		uint32_t                   const   qfamilies_count      = qfamilies_counts[i];
+		VkQueueFamilyProperties    const * qfamilies_properties = qfamily_properties_set[i];
 
 		str8 const type_text = gfx_to_string_physical_device_type(properties.deviceType);
 		uint32_t const v[4] = {
@@ -1072,14 +1078,11 @@ void gfx_device_init(void) {
 	}
 	fmt_print("\n");
 
-	// -- choose two queue families per single physical device
-	//    first and foremost we are interested in graphics operations
-	//    @todo probably later compute ones will come handy too
-	//    secondly, we need another compatible with the surface
-	//    and it's likely to be the same one
-	uint32_t * main_qfamily_choices = ArenaPushArray(scratch, uint32_t, physical_devices_count); // @note that is `index + 1`
-	uint32_t * present_qfamily_choices = ArenaPushArray(scratch, uint32_t, physical_devices_count); // @note that is `index + 1`
-	uint32_t * transfer_qfamily_choices = ArenaPushArray(scratch, uint32_t, physical_devices_count); // @note that is `index + 1`
+	// ---- ---- ---- ----
+	// queue families
+	// ---- ---- ---- ----
+
+	struct GFX_QFamilies * qfamily_choices = ArenaPushArray(scratch, struct GFX_QFamilies, physical_devices_count);
 	for (uint32_t i = 0; i < physical_devices_count; i++) {
 		VkPhysicalDevice const handle = physical_devices[i];
 
@@ -1087,13 +1090,9 @@ void gfx_device_init(void) {
 		VkQueueFamilyProperties const * properties = qfamily_properties_set[i];
 		VkBool32 const * surface_supports = qfamilies_surface_support_set[i];
 
-		uint32_t * main_qfamily_choice     = &main_qfamily_choices[i];
-		uint32_t * present_qfamily_choice  = &present_qfamily_choices[i];
-		uint32_t * transfer_qfamily_choice = &transfer_qfamily_choices[i];
+		struct GFX_QFamilies * qfamily_choice = &qfamily_choices[i];
 
-		*main_qfamily_choice = 0;
-		*present_qfamily_choice = 0;
-		*transfer_qfamily_choice = 0;
+		*qfamily_choice = (struct GFX_QFamilies){0};
 
 		// -- prefer a main queue that can present
 		for (uint32_t i = 0; i < count; i++) {
@@ -1103,8 +1102,8 @@ void gfx_device_init(void) {
 			VkBool32 const surface_support = surface_supports[i];
 			if (!surface_support) continue;
 
-			*main_qfamily_choice = i + 1;
-			*present_qfamily_choice = i + 1;
+			qfamily_choice->main = i + 1;
+			qfamily_choice->present = i + 1;
 			break;
 		}
 
@@ -1114,39 +1113,37 @@ void gfx_device_init(void) {
 			if (!(it.queueFlags & VK_QUEUE_TRANSFER_BIT)) continue;
 			if (it.queueFlags & (VK_QUEUE_GRAPHICS_BIT | VK_QUEUE_COMPUTE_BIT)) continue;
 
-			*transfer_qfamily_choice = i + 1;
+			qfamily_choice->transfer = i + 1;
 			break;
 		}
 
 		// -- fallback to first matching
-		for (uint32_t i = 0; i < count && !*main_qfamily_choice; i++) {
+		for (uint32_t i = 0; i < count && !qfamily_choice->main; i++) {
 			VkQueueFamilyProperties const it = properties[i];
 			if (it.queueFlags & VK_QUEUE_GRAPHICS_BIT)
-				*main_qfamily_choice = i + 1;
+				qfamily_choice->main = i + 1;
 		}
 
-		for (uint32_t i = 0; i < count && !*present_qfamily_choice; i++) {
+		for (uint32_t i = 0; i < count && !qfamily_choice->present; i++) {
 			VkBool32 const surface_support = surface_supports[i];
 			if (surface_support)
-				*present_qfamily_choice = i + 1;
+				qfamily_choice->present = i + 1;
 		}
 
-		for (uint32_t i = 0; i < count && !*transfer_qfamily_choice; i++) {
+		for (uint32_t i = 0; i < count && !qfamily_choice->transfer; i++) {
 			VkQueueFamilyProperties const it = properties[i];
 			if (it.queueFlags & VK_QUEUE_TRANSFER_BIT)
-				*transfer_qfamily_choice = i + 1;
+				qfamily_choice->transfer = i + 1;
 		}
 	}
 
 	// @note it's possible to forcibly prefer, say, a discrete GPU, but better to default
 	// with a first suitable one, giving a chance to the user to sort priorities manually
 	// namely with the "NVIDIA Control Panel" or the "AMD Software: Adrenalin Edition"
-	uint32_t physical_device_choice = 0; // @note that is `index + 1`
-	for (uint32_t i = 0; i < physical_devices_count && !physical_device_choice; i++) {
-		VkPhysicalDeviceProperties const it = physical_device_properties[i];
-		if (main_qfamily_choices[i] && present_qfamily_choices[i] && transfer_qfamily_choices[i])
+	uint32_t physical_device_choice = 0; // @note value is `index + 1`
+	for (uint32_t i = 0; i < physical_devices_count && !physical_device_choice; i++)
+		if (qfamily_choices[i].main && qfamily_choices[i].present && qfamily_choices[i].transfer)
 			physical_device_choice = i + 1;
-	}
 
 	Assert(physical_device_choice > 0, "[gfx] no suitable physical device found\n");
 	uint32_t const physical_device_index = physical_device_choice
@@ -1154,10 +1151,8 @@ void gfx_device_init(void) {
 		: 0;
 
 	fl_gfx.device.physical.handle     = physical_devices[physical_device_index];
-	fl_gfx.device.physical.properties = physical_device_properties[physical_device_index];
-	fl_gfx.device.physical.main_qfamily_index     = main_qfamily_choices[physical_device_index] - 1;
-	fl_gfx.device.physical.present_qfamily_index  = present_qfamily_choices[physical_device_index] - 1;
-	fl_gfx.device.physical.transfer_qfamily_index = transfer_qfamily_choices[physical_device_index] - 1;
+	fl_gfx.device.physical.qfamily    = qfamily_choices[physical_device_index];
+	fl_gfx.device.physical.properties = physical_devices_properties[physical_device_index];
 	vkGetPhysicalDeviceMemoryProperties(fl_gfx.device.physical.handle, &fl_gfx.device.physical.memory_properties);
 
 	// ---- ---- ---- ----
@@ -1170,7 +1165,7 @@ void gfx_device_init(void) {
 	};
 
 	VkFormat const surface_format_preferences[] = {
-		// @note RivaTuner Statistics Server doesn't work great with sRGB formats
+		// @bug RivaTuner Statistics Server doesn't work great with sRGB formats
 		#if GFX_PREFER_SRGB
 		VK_FORMAT_R8G8B8A8_SRGB,
 		VK_FORMAT_B8G8R8A8_SRGB,
@@ -1197,7 +1192,6 @@ void gfx_device_init(void) {
 	// ---- ---- ---- ----
 
 	fl_gfx.device.physical.present_mode = VK_PRESENT_MODE_MAX_ENUM_KHR;
-
 	VkPresentModeKHR const present_mode_preferences[] = {
 		#if GFX_PREFER_VSYNC_OFF
 		VK_PRESENT_MODE_IMMEDIATE_KHR,
@@ -1225,12 +1219,11 @@ void gfx_device_init(void) {
 	// create logical device
 	// ---- ---- ---- ----
 
-	VkPhysicalDeviceProperties const properties = physical_device_properties[physical_device_index];
 	str8 const surface_format_text = gfx_to_string_format(fl_gfx.device.physical.surface_format.format);
 	str8 const color_space_text = gfx_to_string_color_space(fl_gfx.device.physical.surface_format.colorSpace);
 	str8 const present_mode_text = gfx_to_string_present_mode(fl_gfx.device.physical.present_mode);
 	fmt_print("[gfx] chosen device:\n");
-	fmt_print("- name:           \"%s\"\n", properties.deviceName);
+	fmt_print("- name:           \"%s\"\n", fl_gfx.device.physical.properties.deviceName);
 	fmt_print("- handle:         0x%p\n", (void *)fl_gfx.device.physical.handle);
 	fmt_print("- surface format: %.*s\n", (int)surface_format_text.count, surface_format_text.buffer);
 	fmt_print("- color space:    %.*s\n", (int)color_space_text.count, color_space_text.buffer);
@@ -1238,9 +1231,9 @@ void gfx_device_init(void) {
 	fmt_print("\n");
 
 	arr32 queue_families = {.capacity = 4, .buffer = (uint32_t[4]){0}};
-	arr32_append_unique(&queue_families, fl_gfx.device.physical.main_qfamily_index);
-	arr32_append_unique(&queue_families, fl_gfx.device.physical.present_qfamily_index);
-	arr32_append_unique(&queue_families, fl_gfx.device.physical.transfer_qfamily_index);
+	arr32_append_unique(&queue_families, fl_gfx.device.physical.qfamily.main - 1);
+	arr32_append_unique(&queue_families, fl_gfx.device.physical.qfamily.present - 1);
+	arr32_append_unique(&queue_families, fl_gfx.device.physical.qfamily.transfer - 1);
 
 	VkDeviceQueueCreateInfo queue_infos[4];
 	for (uint32_t i = 0; i < queue_families.count; i++)
@@ -1271,9 +1264,9 @@ void gfx_device_init(void) {
 		&fl_gfx.device.handle
 	);
 
-	vkGetDeviceQueue(fl_gfx.device.handle, fl_gfx.device.physical.main_qfamily_index,     0, &fl_gfx.device.main_queue);
-	vkGetDeviceQueue(fl_gfx.device.handle, fl_gfx.device.physical.present_qfamily_index,  0, &fl_gfx.device.present_queue);
-	vkGetDeviceQueue(fl_gfx.device.handle, fl_gfx.device.physical.transfer_qfamily_index, 0, &fl_gfx.device.transfer_queue);
+	vkGetDeviceQueue(fl_gfx.device.handle, fl_gfx.device.physical.qfamily.main - 1,     0, &fl_gfx.device.queue.main);
+	vkGetDeviceQueue(fl_gfx.device.handle, fl_gfx.device.physical.qfamily.present - 1,  0, &fl_gfx.device.queue.present);
+	vkGetDeviceQueue(fl_gfx.device.handle, fl_gfx.device.physical.qfamily.transfer - 1, 0, &fl_gfx.device.queue.transfer);
 
 	arena_set_position(scratch, scratch_position);
 }
@@ -1294,8 +1287,8 @@ void gfx_image_create(
 	VkImage * out_image, VkDeviceMemory * out_memory
 ) {
 	arr32 queue_families = {.capacity = 2, .buffer = (uint32_t[2]){0}};
-	arr32_append_unique(&queue_families, fl_gfx.device.physical.main_qfamily_index);
-	arr32_append_unique(&queue_families, fl_gfx.device.physical.transfer_qfamily_index);
+	arr32_append_unique(&queue_families, fl_gfx.device.physical.qfamily.main - 1);
+	arr32_append_unique(&queue_families, fl_gfx.device.physical.qfamily.transfer - 1);
 
 	vkCreateImage(
 		fl_gfx.device.handle,
@@ -1358,7 +1351,7 @@ void gfx_image_transition(
 	VkImageLayout old_layout, VkImageLayout new_layout
 ) {
 	// @note transfer queue is not applicable
-	VkQueue         const queue          = fl_gfx.device.main_queue;
+	VkQueue         const queue          = fl_gfx.device.queue.main;
 	VkCommandBuffer const command_buffer = fl_gfx.main_command_buffers[GFX_FRAMES_IN_FLIGHT];
 
 	// universal opening
@@ -1468,7 +1461,7 @@ void gfx_image_transition(
 
 AttrFileLocal()
 void gfx_image_upload(VkImage image, VkBuffer source, uvec2 size, VkFormat format) {
-	VkQueue         const queue          = fl_gfx.device.transfer_queue;
+	VkQueue         const queue          = fl_gfx.device.queue.transfer;
 	VkCommandBuffer const command_buffer = fl_gfx.transfer_command_buffer;
 
 	// universal opening
@@ -1514,7 +1507,7 @@ bool gfx_image_generate_mipmaps(VkImage image, VkFormat format, u32 extra_mip_le
 		return false;
 
 	// @note transfer queue is not applicable
-	VkQueue         const queue          = fl_gfx.device.main_queue;
+	VkQueue         const queue          = fl_gfx.device.queue.main;
 	VkCommandBuffer const command_buffer = fl_gfx.main_command_buffers[GFX_FRAMES_IN_FLIGHT];
 
 	// universal opening
@@ -1721,8 +1714,8 @@ void gfx_command_pool_destroy(VkCommandPool command_pool) {
 
 AttrFileLocal()
 void gfx_command_pool_init(void) {
-	gfx_command_pool_create(fl_gfx.device.physical.main_qfamily_index, GFX_FRAMES_IN_FLIGHT + 1, &fl_gfx.main_command_pool, fl_gfx.main_command_buffers);
-	gfx_command_pool_create(fl_gfx.device.physical.transfer_qfamily_index, 1, &fl_gfx.transfer_command_pool, &fl_gfx.transfer_command_buffer);
+	gfx_command_pool_create(fl_gfx.device.physical.qfamily.main - 1, GFX_FRAMES_IN_FLIGHT + 1, &fl_gfx.main_command_pool, fl_gfx.main_command_buffers);
+	gfx_command_pool_create(fl_gfx.device.physical.qfamily.transfer - 1, 1, &fl_gfx.transfer_command_pool, &fl_gfx.transfer_command_buffer);
 }
 
 AttrFileLocal()
@@ -1839,8 +1832,8 @@ void gfx_swapchain_init(VkSwapchainKHR old_swapchain) {
 	// ---- ---- ---- ----
 
 	arr32 queue_families = {.capacity = 2, .buffer = (uint32_t[2]){0}};
-	arr32_append_unique(&queue_families, fl_gfx.device.physical.main_qfamily_index);
-	arr32_append_unique(&queue_families, fl_gfx.device.physical.present_qfamily_index);
+	arr32_append_unique(&queue_families, fl_gfx.device.physical.qfamily.main - 1);
+	arr32_append_unique(&queue_families, fl_gfx.device.physical.qfamily.present - 1);
 
 	vkCreateSwapchainKHR(
 		fl_gfx.device.handle,
@@ -1981,8 +1974,8 @@ void gfx_buffer_create(
 	VkBuffer * out_buffer, VkDeviceMemory * out_memory
 ) {
 	arr32 queue_families = {.capacity = 2, .buffer = (uint32_t[2]){0}};
-	arr32_append_unique(&queue_families, fl_gfx.device.physical.main_qfamily_index);
-	arr32_append_unique(&queue_families, fl_gfx.device.physical.transfer_qfamily_index);
+	arr32_append_unique(&queue_families, fl_gfx.device.physical.qfamily.main - 1);
+	arr32_append_unique(&queue_families, fl_gfx.device.physical.qfamily.transfer - 1);
 
 	vkCreateBuffer(
 		fl_gfx.device.handle,
@@ -2031,7 +2024,7 @@ void gfx_buffer_destroy(VkBuffer buffer, VkDeviceMemory memory) {
 
 AttrFileLocal()
 void gfx_buffer_copy(VkBuffer source, VkBuffer target, VkDeviceSize size) {
-	VkQueue         const queue          = fl_gfx.device.transfer_queue;
+	VkQueue         const queue          = fl_gfx.device.queue.transfer;
 	VkCommandBuffer const command_buffer = fl_gfx.transfer_command_buffer;
 
 	// universal opening
@@ -2173,7 +2166,7 @@ void gfx_graphics_pipeline_init(void) {
 	);
 
 	// -- create graphics pipeline
-	AttrFuncLocal() VkDynamicState const dynamic_states[] = {
+	VkDynamicState const dynamic_states[] = {
 		VK_DYNAMIC_STATE_VIEWPORT,
 		VK_DYNAMIC_STATE_SCISSOR,
 		// VK_DYNAMIC_STATE_DEPTH_TEST_ENABLE,
@@ -2278,7 +2271,7 @@ void gfx_graphics_pipeline_init(void) {
 			// depth / stencil
 			.pDepthStencilState = &(VkPipelineDepthStencilStateCreateInfo){
 				.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO,
-				// @note use `VK_DYNAMIC_STATE_*` for these
+				// @todo use `VK_DYNAMIC_STATE_*` for these
 				.depthTestEnable = VK_TRUE,
 				.depthWriteEnable = VK_TRUE,
 				.depthCompareOp = GFX_REVERSE_Z
@@ -2691,7 +2684,7 @@ void gfx_tick(void) {
 	// submit
 	// ---- ---- ---- ----
 
-	vkQueueSubmit(fl_gfx.device.main_queue, 1, &(VkSubmitInfo){
+	vkQueueSubmit(fl_gfx.device.queue.main, 1, &(VkSubmitInfo){
 		.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
 		// wait semaphores
 		.waitSemaphoreCount = 1,
@@ -2712,7 +2705,7 @@ void gfx_tick(void) {
 	// ---- ---- ---- ----
 
 	VkResult const queue_present_result =
-	vkQueuePresentKHR(fl_gfx.device.present_queue, &(VkPresentInfoKHR){
+	vkQueuePresentKHR(fl_gfx.device.queue.present, &(VkPresentInfoKHR){
 		.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,
 		// wait semaphores
 		.waitSemaphoreCount = 1,
