@@ -1285,6 +1285,7 @@ void gfx_device_init(void) {
 			// features
 			.pEnabledFeatures = &(VkPhysicalDeviceFeatures){
 				.samplerAnisotropy = fl_gfx.device.physical.properties.limits.maxSamplerAnisotropy > 1,
+				.sampleRateShading = fl_gfx.device.physical.samples > VK_SAMPLE_COUNT_1_BIT,
 			},
 		},
 		&fl_gfx_allocator,
@@ -1760,7 +1761,7 @@ void gfx_render_pass_init(void) {
 			.samples = fl_gfx.device.physical.samples,
 			// layout
 			.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
-			.finalLayout = fl_gfx.device.physical.samples != VK_SAMPLE_COUNT_1_BIT
+			.finalLayout = fl_gfx.device.physical.samples > VK_SAMPLE_COUNT_1_BIT
 				? VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL
 				: VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
 			// color and depth operations
@@ -1803,7 +1804,7 @@ void gfx_render_pass_init(void) {
 		&(VkRenderPassCreateInfo){
 			.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO,
 			// attachments
-			.attachmentCount = fl_gfx.device.physical.samples != VK_SAMPLE_COUNT_1_BIT ? 3 : 2,
+			.attachmentCount = fl_gfx.device.physical.samples > VK_SAMPLE_COUNT_1_BIT ? 3 : 2,
 			.pAttachments = attachments,
 			// subpasses
 			.subpassCount = 1,
@@ -1818,7 +1819,7 @@ void gfx_render_pass_init(void) {
 					.attachment = GFX_FRAMEBUFFER_INDEX_DEPTH,
 					.layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
 				},
-				.pResolveAttachments = fl_gfx.device.physical.samples != VK_SAMPLE_COUNT_1_BIT
+				.pResolveAttachments = fl_gfx.device.physical.samples > VK_SAMPLE_COUNT_1_BIT
 					? &(VkAttachmentReference){
 						.attachment = GFX_FRAMEBUFFER_INDEX_RSLVE,
 						.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
@@ -1970,7 +1971,7 @@ void gfx_swapchain_init(VkSwapchainKHR old_swapchain) {
 
 	fl_gfx.swapchain.framebuffers = os_memory_heap(NULL, sizeof(VkFramebuffer) * fl_gfx.swapchain.images_count);
 	for (uint32_t i = 0; i < fl_gfx.swapchain.images_count; i++) {
-		VkImageView const * attachments = fl_gfx.device.physical.samples != VK_SAMPLE_COUNT_1_BIT
+		VkImageView const * attachments = fl_gfx.device.physical.samples > VK_SAMPLE_COUNT_1_BIT
 			? (VkImageView[]){
 				[GFX_FRAMEBUFFER_INDEX_COLOR] = fl_gfx.swapchain.color_texture.view,
 				[GFX_FRAMEBUFFER_INDEX_DEPTH] = fl_gfx.swapchain.depth_texture.view,
@@ -1989,7 +1990,7 @@ void gfx_swapchain_init(VkSwapchainKHR old_swapchain) {
 				.height = fl_gfx.swapchain.extent.height,
 				.layers = 1,
 				// attachments
-				.attachmentCount = fl_gfx.device.physical.samples != VK_SAMPLE_COUNT_1_BIT ? 3 : 2,
+				.attachmentCount = fl_gfx.device.physical.samples > VK_SAMPLE_COUNT_1_BIT ? 3 : 2,
 				.pAttachments = attachments,
 			},
 			&fl_gfx_allocator,
@@ -2312,6 +2313,8 @@ void gfx_graphics_pipeline_init(void) {
 			.pMultisampleState = &(VkPipelineMultisampleStateCreateInfo){
 				.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO,
 				.rasterizationSamples = fl_gfx.device.physical.samples,
+				.sampleShadingEnable = fl_gfx.device.physical.samples > VK_SAMPLE_COUNT_1_BIT,
+				.minSampleShading = fl_gfx.device.physical.samples > VK_SAMPLE_COUNT_1_BIT ? 0.2f : 0,
 			},
 			// blend
 			.pColorBlendState = &(VkPipelineColorBlendStateCreateInfo){
