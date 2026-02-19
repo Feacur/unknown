@@ -361,7 +361,7 @@ VkFormat gfx_to_format_vector(enum VkFormat primitive, size_t count) {
 }
 
 // ---- ---- ---- ----
-// utilities
+// common utilities
 // ---- ---- ---- ----
 
 AttrFileLocal()
@@ -515,6 +515,11 @@ struct GFX_Queues {
 	VkQueue transfer;
 };
 
+struct GFX_QCmd {
+	VkQueue queue;
+	VkCommandBuffer commands;
+};
+
 AttrFileLocal()
 struct GFX {
 	// instance
@@ -616,7 +621,7 @@ void * gfx_get_instance_proc(char const * name) {
 }
 
 // ---- ---- ---- ----
-// utilities
+// GFX utilities
 // ---- ---- ---- ----
 
 AttrFileLocal()
@@ -711,6 +716,22 @@ VkImageLayout gfx_find_depth_layout(VkFormat format) {
 		case VK_FORMAT_D16_UNORM_S8_UINT:
 			return VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
 	}
+}
+
+AttrFileLocal()
+struct GFX_QCmd gfx_get_main_qbuffer(uint32_t frame) {
+	return (struct GFX_QCmd){
+		.queue    = fl_gfx.device.queue.main,
+		.commands = fl_gfx.main_command_buffers[frame],
+	};
+}
+
+AttrFileLocal()
+struct GFX_QCmd gfx_get_transfer_qbuffer(void) {
+	return (struct GFX_QCmd){
+		.queue    = fl_gfx.device.queue.transfer,
+		.commands = fl_gfx.transfer_command_buffer,
+	};
 }
 
 // ---- ---- ---- ----
@@ -1350,12 +1371,11 @@ void gfx_image_transition(
 	VkImage image, VkFormat format, u32 extra_mip_levels,
 	VkImageLayout old_layout, VkImageLayout new_layout
 ) {
-	// @note transfer queue is not applicable
-	VkQueue         const queue          = fl_gfx.device.queue.main;
-	VkCommandBuffer const command_buffer = fl_gfx.main_command_buffers[GFX_FRAMES_IN_FLIGHT];
+	// @note transfer queue is not applicable, graphics capabilities are required
+	struct GFX_QCmd const context = gfx_get_main_qbuffer(GFX_FRAMES_IN_FLIGHT);
 
 	// universal opening
-	vkBeginCommandBuffer(command_buffer, &(VkCommandBufferBeginInfo){
+	vkBeginCommandBuffer(context.commands, &(VkCommandBufferBeginInfo){
 		.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
 		.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT,
 	});
@@ -1423,7 +1443,7 @@ void gfx_image_transition(
 	}
 
 	vkCmdPipelineBarrier(
-		command_buffer,
+		context.commands,
 		src_stage_mask, dst_stage_mask,
 		0,       // dependency flags
 		0, NULL, // memory barrier
@@ -1448,30 +1468,29 @@ void gfx_image_transition(
 	);
 
 	// universal ending
-	vkEndCommandBuffer(command_buffer);
+	vkEndCommandBuffer(context.commands);
 
-	vkQueueSubmit(queue, 1, &(VkSubmitInfo){
+	vkQueueSubmit(context.queue, 1, &(VkSubmitInfo){
 		.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
 		.commandBufferCount = 1,
-		.pCommandBuffers = &command_buffer,
+		.pCommandBuffers = &context.commands,
 	}, VK_NULL_HANDLE);
 
-	vkQueueWaitIdle(queue);
+	vkQueueWaitIdle(context.queue);
 }
 
 AttrFileLocal()
 void gfx_image_upload(VkImage image, VkBuffer source, uvec2 size, VkFormat format) {
-	VkQueue         const queue          = fl_gfx.device.queue.transfer;
-	VkCommandBuffer const command_buffer = fl_gfx.transfer_command_buffer;
+	struct GFX_QCmd const context = gfx_get_transfer_qbuffer();
 
 	// universal opening
-	vkBeginCommandBuffer(command_buffer, &(VkCommandBufferBeginInfo){
+	vkBeginCommandBuffer(context.commands, &(VkCommandBufferBeginInfo){
 		.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
 		.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT,
 	});
 
 	// image commands
-	vkCmdCopyBufferToImage(command_buffer, source, image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+	vkCmdCopyBufferToImage(context.commands, source, image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
 		1, &(VkBufferImageCopy){
 			// buffer
 			.bufferOffset = 0,
@@ -1490,15 +1509,15 @@ void gfx_image_upload(VkImage image, VkBuffer source, uvec2 size, VkFormat forma
 	);
 
 	// universal ending
-	vkEndCommandBuffer(command_buffer);
+	vkEndCommandBuffer(context.commands);
 
-	vkQueueSubmit(queue, 1, &(VkSubmitInfo){
+	vkQueueSubmit(context.queue, 1, &(VkSubmitInfo){
 		.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
 		.commandBufferCount = 1,
-		.pCommandBuffers = &command_buffer,
+		.pCommandBuffers = &context.commands,
 	}, VK_NULL_HANDLE);
 
-	vkQueueWaitIdle(queue);
+	vkQueueWaitIdle(context.queue);
 }
 
 AttrFileLocal()
@@ -1506,12 +1525,11 @@ bool gfx_image_generate_mipmaps(VkImage image, VkFormat format, u32 extra_mip_le
 	if (!gfx_is_format_supported(format, VK_IMAGE_TILING_OPTIMAL, VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR_BIT))
 		return false;
 
-	// @note transfer queue is not applicable
-	VkQueue         const queue          = fl_gfx.device.queue.main;
-	VkCommandBuffer const command_buffer = fl_gfx.main_command_buffers[GFX_FRAMES_IN_FLIGHT];
+	// @note transfer queue is not applicable, graphics capabilities are required
+	struct GFX_QCmd const context = gfx_get_main_qbuffer(GFX_FRAMES_IN_FLIGHT);
 
 	// universal opening
-	vkBeginCommandBuffer(command_buffer, &(VkCommandBufferBeginInfo){
+	vkBeginCommandBuffer(context.commands, &(VkCommandBufferBeginInfo){
 		.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
 		.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT,
 	});
@@ -1522,7 +1540,7 @@ bool gfx_image_generate_mipmaps(VkImage image, VkFormat format, u32 extra_mip_le
 	for (u32 i = 0; i < extra_mip_levels; i++) {
 		int32_t const mip_dst_width  = mip_src_width  > 1 ? mip_src_width  / 2 : 1;
 		int32_t const mip_dst_height = mip_src_height > 1 ? mip_src_height / 2 : 1;
-		vkCmdPipelineBarrier(command_buffer,
+		vkCmdPipelineBarrier(context.commands,
 			VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
 			0,       // dependency flags
 			0, NULL, // memory barrier
@@ -1545,7 +1563,7 @@ bool gfx_image_generate_mipmaps(VkImage image, VkFormat format, u32 extra_mip_le
 				.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT,
 			}
 		);
-		vkCmdBlitImage(command_buffer,
+		vkCmdBlitImage(context.commands,
 			image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
 			image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
 			1, &(VkImageBlit){
@@ -1573,7 +1591,7 @@ bool gfx_image_generate_mipmaps(VkImage image, VkFormat format, u32 extra_mip_le
 	}
 
 	vkCmdPipelineBarrier(
-		command_buffer,
+		context.commands,
 		VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
 		0,       // dependency flags
 		0, NULL, // memory barrier
@@ -1617,15 +1635,15 @@ bool gfx_image_generate_mipmaps(VkImage image, VkFormat format, u32 extra_mip_le
 	);
 
 	// universal ending
-	vkEndCommandBuffer(command_buffer);
+	vkEndCommandBuffer(context.commands);
 
-	vkQueueSubmit(queue, 1, &(VkSubmitInfo){
+	vkQueueSubmit(context.queue, 1, &(VkSubmitInfo){
 		.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
 		.commandBufferCount = 1,
-		.pCommandBuffers = &command_buffer,
+		.pCommandBuffers = &context.commands,
 	}, VK_NULL_HANDLE);
 
-	vkQueueWaitIdle(queue);
+	vkQueueWaitIdle(context.queue);
 	return true;
 }
 
@@ -2024,30 +2042,29 @@ void gfx_buffer_destroy(VkBuffer buffer, VkDeviceMemory memory) {
 
 AttrFileLocal()
 void gfx_buffer_copy(VkBuffer source, VkBuffer target, VkDeviceSize size) {
-	VkQueue         const queue          = fl_gfx.device.queue.transfer;
-	VkCommandBuffer const command_buffer = fl_gfx.transfer_command_buffer;
+	struct GFX_QCmd const context = gfx_get_transfer_qbuffer();
 
 	// universal opening
-	vkBeginCommandBuffer(command_buffer, &(VkCommandBufferBeginInfo){
+	vkBeginCommandBuffer(context.commands, &(VkCommandBufferBeginInfo){
 		.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
 		.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT,
 	});
 
 	// buffer commands
-	vkCmdCopyBuffer(command_buffer, source, target, 1, &(VkBufferCopy){
+	vkCmdCopyBuffer(context.commands, source, target, 1, &(VkBufferCopy){
 		.size = size,
 	});
 
 	// universal ending
-	vkEndCommandBuffer(command_buffer);
+	vkEndCommandBuffer(context.commands);
 
-	vkQueueSubmit(queue, 1, &(VkSubmitInfo){
+	vkQueueSubmit(context.queue, 1, &(VkSubmitInfo){
 		.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
 		.commandBufferCount = 1,
-		.pCommandBuffers = &command_buffer,
+		.pCommandBuffers = &context.commands,
 	}, VK_NULL_HANDLE);
 
-	vkQueueWaitIdle(queue);
+	vkQueueWaitIdle(context.queue);
 }
 
 // ---- ---- ---- ----
@@ -2560,7 +2577,7 @@ void gfx_tick(void) {
 		return;
 
 	uint32_t        const frame                     = fl_gfx.swapchain.frame;
-	VkCommandBuffer const command_buffer            = fl_gfx.main_command_buffers[frame];
+	struct GFX_QCmd const context                   = gfx_get_main_qbuffer(frame);
 	VkSemaphore     const image_available_semaphore = fl_gfx.image_available_semaphores[frame];
 	VkSemaphore     const render_finished_semaphore = fl_gfx.render_finished_semaphores[frame];
 	VkFence         const in_flight_fence           = fl_gfx.in_flight_fences[frame];
@@ -2595,7 +2612,7 @@ void gfx_tick(void) {
 	}
 
 	vkResetFences(fl_gfx.device.handle, 1, &in_flight_fence);
-	vkResetCommandBuffer(command_buffer, 0);
+	vkResetCommandBuffer(context.commands, 0);
 
 	// ---- ---- ---- ----
 	// upload uniforms
@@ -2622,7 +2639,7 @@ void gfx_tick(void) {
 	// draw
 	// ---- ---- ---- ----
 
-	vkBeginCommandBuffer(command_buffer, &(VkCommandBufferBeginInfo){
+	vkBeginCommandBuffer(context.commands, &(VkCommandBufferBeginInfo){
 		.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
 	});
 
@@ -2637,7 +2654,7 @@ void gfx_tick(void) {
 		},
 	};
 
-	vkCmdBeginRenderPass(command_buffer, &(VkRenderPassBeginInfo){
+	vkCmdBeginRenderPass(context.commands, &(VkRenderPassBeginInfo){
 		.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
 		.renderPass = fl_gfx.render_pass,
 		.framebuffer = fl_gfx.swapchain.framebuffers[image_index],
@@ -2649,8 +2666,8 @@ void gfx_tick(void) {
 		.pClearValues = clear_values,
 	}, VK_SUBPASS_CONTENTS_INLINE);
 
-	vkCmdBindPipeline(command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, fl_gfx.pipeline.handle);
-	vkCmdSetViewport(command_buffer, 0, 1, &(VkViewport){
+	vkCmdBindPipeline(context.commands, VK_PIPELINE_BIND_POINT_GRAPHICS, fl_gfx.pipeline.handle);
+	vkCmdSetViewport(context.commands, 0, 1, &(VkViewport){
 		// offset, Y positive up
 		.x = (float)0,
 		.y = (float)fl_gfx.swapchain.extent.height,
@@ -2661,11 +2678,11 @@ void gfx_tick(void) {
 		.minDepth = GFX_REVERSE_Z ? 1 : 0,
 		.maxDepth = GFX_REVERSE_Z ? 0 : 1,
 	});
-	vkCmdSetScissor(command_buffer, 0, 1, &(VkRect2D){
+	vkCmdSetScissor(context.commands, 0, 1, &(VkRect2D){
 		.extent = fl_gfx.swapchain.extent,
 	});
 	vkCmdBindDescriptorSets(
-		command_buffer,
+		context.commands,
 		VK_PIPELINE_BIND_POINT_GRAPHICS,
 		fl_gfx.pipeline.layout,
 		0, 1,
@@ -2673,18 +2690,18 @@ void gfx_tick(void) {
 		0, NULL
 	);
 
-	vkCmdBindVertexBuffers(command_buffer, 0, 1, &fl_gfx.model.handle, &fl_gfx.model.offset_vertex);
-	vkCmdBindIndexBuffer(command_buffer, fl_gfx.model.handle, fl_gfx.model.offset_index, fl_gfx.model.index_type);
-	vkCmdDrawIndexed(command_buffer, fl_gfx.model.index_count, 1, 0, 0, 0);
+	vkCmdBindVertexBuffers(context.commands, 0, 1, &fl_gfx.model.handle, &fl_gfx.model.offset_vertex);
+	vkCmdBindIndexBuffer(context.commands, fl_gfx.model.handle, fl_gfx.model.offset_index, fl_gfx.model.index_type);
+	vkCmdDrawIndexed(context.commands, fl_gfx.model.index_count, 1, 0, 0, 0);
 
-	vkCmdEndRenderPass(command_buffer);
-	vkEndCommandBuffer(command_buffer);
+	vkCmdEndRenderPass(context.commands);
+	vkEndCommandBuffer(context.commands);
 
 	// ---- ---- ---- ----
 	// submit
 	// ---- ---- ---- ----
 
-	vkQueueSubmit(fl_gfx.device.queue.main, 1, &(VkSubmitInfo){
+	vkQueueSubmit(context.queue, 1, &(VkSubmitInfo){
 		.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
 		// wait semaphores
 		.waitSemaphoreCount = 1,
@@ -2694,7 +2711,7 @@ void gfx_tick(void) {
 		},
 		// command buffers
 		.commandBufferCount = 1,
-		.pCommandBuffers = &command_buffer,
+		.pCommandBuffers = &context.commands,
 		// signal semaphores
 		.signalSemaphoreCount = 1,
 		.pSignalSemaphores = &render_finished_semaphore,
