@@ -113,6 +113,7 @@ AttrFileLocal() __CRTDECL
 void os_signal_handler(int signal) {
 	str8 signal_text = os_to_string_signal(signal);
 	AssertF(false, "[os] signal %.*s\n", (int)signal_text.count, signal_text.buffer);
+	// @info IPC signals
 	// https://learn.microsoft.com/cpp/c-runtime-library/reference/signal
 	// https://learn.microsoft.com/windows/console/ctrl-c-and-ctrl-break-signals
 	// https://cplusplus.com/reference/csignal/signal
@@ -296,6 +297,7 @@ WORD os_fix_virtual_key(WORD virtual_key_code, WORD scan_code) {
 			return LOWORD(mapped);
 	}
 	return virtual_key_code;
+	// @info win32 virtual key
 	// https://learn.microsoft.com/windows/win32/api/winuser/nf-winuser-mapvirtualkeya
 }
 
@@ -310,10 +312,11 @@ void os_window_on_key(WPARAM wparam, LPARAM lparam) {
 	WORD const virtual_key_code = os_fix_virtual_key(LOWORD(wparam), scan_code);
 
 	if (!is_up && !was_down) {
-		if (virtual_key_code == VK_F11) {
+		if (virtual_key_code == VK_F11) { // key [f11]
 			os_toggle_borderless_fullscreen();
 		}
 	}
+	// @info win32 keyboard input
 	// https://learn.microsoft.com/windows/win32/inputdev/keyboard-input
 }
 
@@ -356,16 +359,16 @@ LRESULT os_window_procedure(HWND window, UINT message, WPARAM wparam, LPARAM lpa
 
 		case WM_SYSCOMMAND:
 			if (fl_os.window == window) {
-				// int cursor_x = GET_X_LPARAM(lparam); // LOWORD
-				// int cursor_y = GET_Y_LPARAM(lparam); // HIWORD
+				// int cursor_x = GET_X_LPARAM(lparam); // or `LOWORD`
+				// int cursor_y = GET_Y_LPARAM(lparam); // or `HIWORD`
 				switch (wparam & 0xfff0) {
 					#if OS_MESSAGING == OS_MESSAGING_TICK
 					case SC_MOVE: os_syscommand_move(wparam & 0x000f); return 0;
 					case SC_SIZE: os_syscommand_size(wparam & 0x000f); return 0;
 					#endif
-					// case SC_CLOSE: return 0; // @note alt+f4
-					case SC_KEYMENU: // @note hotkeys
-						if (lparam == VK_RETURN)
+					// case SC_CLOSE: return 0; // key [alt+f4]
+					case SC_KEYMENU:
+						if (lparam == VK_RETURN) // key [alt+enter]
 							os_toggle_borderless_fullscreen();
 						return 0;
 				}
@@ -401,7 +404,8 @@ LRESULT os_window_procedure(HWND window, UINT message, WPARAM wparam, LPARAM lpa
 	}
 
 	return DefWindowProc(window, message, wparam, lparam);
-	// https://learn.microsoft.com/windows/win32/winmsg/window-notifications
+	// @info win32 window procedure
+	// https://learn.microsoft.com/windows/win32/winmsg/window-procedures
 }
 
 AttrFileLocal()
@@ -591,6 +595,7 @@ struct OS_File * os_file_init(struct OS_File_IInfo info) {
 	ret->info = info;
 	ret->handle = handle;
 	return ret;
+	// @info win32 file open
 	// https://learn.microsoft.com/windows/win32/api/fileapi/nf-fileapi-createfilea
 }
 
@@ -606,6 +611,7 @@ u64 os_file_get_size(struct OS_File const * file) {
 	BOOL const ok = GetFileSizeEx(file->handle, &ret);
 	Assert(ok == TRUE, "[os] `GetFileSizeEx` failed\n");
 	return (u64)ret.QuadPart;
+	// @info win32 file size
 	// https://learn.microsoft.com/windows/win32/api/fileapi/nf-fileapi-getfilesizeex
 }
 
@@ -623,6 +629,7 @@ u64 os_file_get_write_nanos(struct OS_File const * file) {
 	// Contains a 64-bit value representing the number of
 	// 100-nanosecond intervals since January 1, 1601 (UTC).
 	return combined.QuadPart * 100;
+	// @info win32 file time
 	// https://learn.microsoft.com/windows/win32/api/fileapi/nf-fileapi-getfiletime
 	// https://learn.microsoft.com/windows/win32/api/minwinbase/ns-minwinbase-filetime
 }
@@ -650,6 +657,7 @@ u64 os_file_read(struct OS_File const * file, u64 offset_min, u64 offset_max, vo
 			break;
 	}
 	return ret;
+	// @info win32 file read
 	// https://learn.microsoft.com/windows/win32/api/fileapi/nf-fileapi-readfile
 }
 
@@ -719,6 +727,7 @@ void * os_memory_heap(void * ptr, size_t size) {
 		return ok ? NULL : ptr;
 	}
 	return NULL;
+	// @info win32 heap memory
 	// MEMORY_ALLOCATION_ALIGNMENT
 	// https://learn.microsoft.com/windows/win32/api/heapapi/nf-heapapi-heapalloc
 	// https://learn.microsoft.com/windows/win32/api/heapapi/nf-heapapi-heaprealloc
@@ -730,20 +739,23 @@ void * os_memory_reserve(size_t size) {
 	void * ret = VirtualAlloc(NULL, size, MEM_RESERVE, PAGE_READWRITE);
 	AssertF(ret != NULL, "[os] `VirtualAlloc(NULL, %zu, MEM_RESERVE)` failed\n", size);
 	return ret;
+	// @info win32 virtual memory
 	// https://learn.microsoft.com/windows/win32/api/memoryapi/nf-memoryapi-virtualalloc
 }
 
 void os_memory_release(void * ptr, size_t size) {
-	(void)size; // @note `size` is not used
-	// release frees the entire region
+	(void)size; // @note "this parameter must be 0 (zero)"
+	// "The function frees the entire region that is reserved in the initial allocation"
 	BOOL const ok = VirtualFree(ptr, 0, MEM_RELEASE);
 	AssertF(ok == TRUE, "[os] `VirtualFree(0x%p, 0, MEM_RELEASE)` failed\n", ptr);
+	// @info win32 virtual memory
 	// https://learn.microsoft.com/windows/win32/api/memoryapi/nf-memoryapi-virtualfree
 }
 
 void os_memory_commit(void * ptr, size_t size) {
 	void const * mem = VirtualAlloc(ptr, size, MEM_COMMIT, PAGE_READWRITE);
 	AssertF(mem != NULL, "[os] `VirtualAlloc(0x%p, %zu, MEM_COMMIT)` failed\n", ptr, size);
+	// @info win32 virtual memory
 	// https://learn.microsoft.com/windows/win32/api/memoryapi/nf-memoryapi-virtualalloc
 }
 
@@ -752,6 +764,7 @@ void os_memory_decommit(void * ptr, size_t size) {
 	// 2) otherwise decommits all memory pages that contain the range
 	BOOL const ok = VirtualFree(ptr, size, MEM_DECOMMIT);
 	AssertF(ok == TRUE, "[os] `VirtualFree(0x%p, %zu, MEM_DECOMMIT)` failed\n", ptr, size);
+	// @info win32 virtual memory
 	// https://learn.microsoft.com/windows/win32/api/memoryapi/nf-memoryapi-virtualfree
 }
 
@@ -801,6 +814,7 @@ struct OS_Thread * os_thread_init(struct OS_Thread_IInfo info) {
 	ret->handle = CreateThread(NULL, 0, os_thread_entry_point, ret, 0, &ret->id);
 	Assert(ret->handle != NULL, "[os] `CreateThread` failed\n");
 	return ret;
+	// @info win32 threads
 	// https://learn.microsoft.com/windows/win32/api/processthreadsapi/nf-processthreadsapi-createthread
 }
 
@@ -830,12 +844,14 @@ int WinMain(HINSTANCE hInst, HINSTANCE hInstPrev, PSTR cmdline, int cmdshow) {
 }
 #endif
 
+// @info GFX Nvidia preference
 // http://developer.download.nvidia.com/devzone/devcenter/gamegraphics/files/OptimusRenderingPolicies.pdf
 // Global Variable NvOptimusEnablement (new in Driver Release 302)
 // Starting with the Release 302 drivers, application developers can direct the Optimus driver at runtime to use the High Performance Graphics to render any application–even those applications for which there is no existing application profile. They can do this by exporting a global variable named NvOptimusEnablement. The Optimus driver looks for the existence and value of the export. Only the LSB of the DWORD matters at this time. Avalue of 0x00000001 indicates that rendering should be performed using High Performance Graphics. A value of 0x00000000 indicates that this method should beignored.
 __declspec(dllexport) extern DWORD NvOptimusEnablement;
 DWORD NvOptimusEnablement = 1;
 
+// @info GFX AMD preference
 // https://gpuopen.com/learn/amdpowerxpressrequesthighperformance
 // Many Gaming and workstation laptops are available with both (1) integrated power saving and (2) discrete high performance graphics devices. Unfortunately, 3D intensive application performance may suffer greatly if the best graphics device is not selected. For example, a game may run at 30 Frames Per Second (FPS) on the integrated GPU rather than the 60 FPS the discrete GPU would enable. As a developer you can easily fix this problem by adding only one line to your executable’s source code:
 // Yes, it’s that easy. This line will ensure that the high-performance graphics device is chosen when running your application.

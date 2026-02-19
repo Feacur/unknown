@@ -73,15 +73,15 @@ goto :eof
 		)
 	)
 
-	rem @note batch
+	rem @info batch
 	rem https://ss64.com/nt/
 	rem https://learn.microsoft.com/windows-server/administration/windows-commands
 
-	rem @note clang / gcc
+	rem @info clang / gcc
 	rem https://gcc.gnu.org/onlinedocs/
 	rem https://clang.llvm.org/docs/CommandGuide/clang.html
 
-	rem @note clang's lld-link / MSVC's link
+	rem @info clang's lld-link / MSVC's link
 	rem https://learn.microsoft.com/cpp/build/reference/linking
 	rem https://learn.microsoft.com/cpp/c-runtime-library/crt-library-features
 
