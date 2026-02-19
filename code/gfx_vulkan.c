@@ -31,6 +31,7 @@ reverse Z
 
 #define GFX_FRAMEBUFFER_INDEX_COLOR 0
 #define GFX_FRAMEBUFFER_INDEX_DEPTH 1
+#define GFX_FRAMEBUFFER_INDEX_RSLVE 2
 
 #define GFX_ALIGN32_SCALAR sizeof(f32)
 #define GFX_ALIGN32_VEC2 (GFX_ALIGN32_SCALAR * 2)
@@ -538,6 +539,7 @@ struct GFX {
 			struct GFX_QFamilies qfamily;
 			VkSurfaceFormatKHR surface_format;
 			VkPresentModeKHR present_mode;
+			VkSampleCountFlagBits samples;
 		} physical;
 		VkDevice handle;
 		struct GFX_Queues queue;
@@ -565,6 +567,7 @@ struct GFX {
 		VkImage        * images;
 		VkImageView    * image_views;
 		// depth, created manually
+		struct GFX_Texture color_texture;
 		struct GFX_Texture depth_texture;
 		// framebuffer
 		VkFramebuffer  * framebuffers;
@@ -1172,9 +1175,12 @@ void gfx_device_init(void) {
 		: 0;
 
 	fl_gfx.device.physical.handle     = physical_devices[physical_device_index];
-	fl_gfx.device.physical.qfamily    = qfamily_choices[physical_device_index];
 	fl_gfx.device.physical.properties = physical_devices_properties[physical_device_index];
 	vkGetPhysicalDeviceMemoryProperties(fl_gfx.device.physical.handle, &fl_gfx.device.physical.memory_properties);
+
+	fl_gfx.device.physical.qfamily = qfamily_choices[physical_device_index];
+	fl_gfx.device.physical.samples = gfx_find_max_sample_count();
+
 
 	// ---- ---- ---- ----
 	// surface format
@@ -1303,7 +1309,7 @@ void gfx_device_free(void) {
 
 AttrFileLocal()
 void gfx_image_create(
-	uvec2 size, VkFormat format, u32 extra_mip_levels, VkImageTiling tiling,
+	uvec2 size, VkFormat format, u32 extra_mip_levels, VkSampleCountFlagBits samples, VkImageTiling tiling,
 	VkImageUsageFlags usage_flags, VkMemoryPropertyFlags property_flags,
 	VkImage * out_image, VkDeviceMemory * out_memory
 ) {
@@ -1323,7 +1329,7 @@ void gfx_image_create(
 			.format = format,
 			.tiling = tiling,
 			.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
-			.samples = VK_SAMPLE_COUNT_1_BIT,
+			.samples = samples,
 			// generic info
 			.usage = usage_flags,
 			.sharingMode = queue_families.count >= 2
@@ -1751,10 +1757,12 @@ void gfx_render_pass_init(void) {
 	VkAttachmentDescription const attachments[] = {
 		[GFX_FRAMEBUFFER_INDEX_COLOR] = (VkAttachmentDescription){
 			.format = fl_gfx.device.physical.surface_format.format,
-			.samples = VK_SAMPLE_COUNT_1_BIT,
+			.samples = fl_gfx.device.physical.samples,
 			// layout
 			.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
-			.finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
+			.finalLayout = fl_gfx.device.physical.samples != VK_SAMPLE_COUNT_1_BIT
+				? VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL
+				: VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
 			// color and depth operations
 			.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR,
 			.storeOp = VK_ATTACHMENT_STORE_OP_STORE,
@@ -1764,7 +1772,7 @@ void gfx_render_pass_init(void) {
 		},
 		[GFX_FRAMEBUFFER_INDEX_DEPTH] = (VkAttachmentDescription){
 			.format = gfx_find_depth_format(),
-			.samples = VK_SAMPLE_COUNT_1_BIT,
+			.samples = fl_gfx.device.physical.samples,
 			// layout
 			.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
 			.finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
@@ -1774,7 +1782,20 @@ void gfx_render_pass_init(void) {
 			// stencil operations
 			.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE,
 			.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE,
-		}
+		},
+		[GFX_FRAMEBUFFER_INDEX_RSLVE] = (VkAttachmentDescription){
+			.format = fl_gfx.device.physical.surface_format.format,
+			.samples = VK_SAMPLE_COUNT_1_BIT,
+			// layout
+			.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+			.finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
+			// color and depth operations
+			.loadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE,
+			.storeOp = VK_ATTACHMENT_STORE_OP_STORE,
+			// stencil operations
+			.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE,
+			.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE,
+		},
 	};
 
 	vkCreateRenderPass(
@@ -1782,7 +1803,7 @@ void gfx_render_pass_init(void) {
 		&(VkRenderPassCreateInfo){
 			.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO,
 			// attachments
-			.attachmentCount = ArrayCount(attachments),
+			.attachmentCount = fl_gfx.device.physical.samples != VK_SAMPLE_COUNT_1_BIT ? 3 : 2,
 			.pAttachments = attachments,
 			// subpasses
 			.subpassCount = 1,
@@ -1790,13 +1811,19 @@ void gfx_render_pass_init(void) {
 				.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS,
 				.colorAttachmentCount = 1,
 				.pColorAttachments = &(VkAttachmentReference){
-					.attachment = 0,
+					.attachment = GFX_FRAMEBUFFER_INDEX_COLOR,
 					.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
 				},
 				.pDepthStencilAttachment = &(VkAttachmentReference){
-					.attachment = 1,
+					.attachment = GFX_FRAMEBUFFER_INDEX_DEPTH,
 					.layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
-				}
+				},
+				.pResolveAttachments = fl_gfx.device.physical.samples != VK_SAMPLE_COUNT_1_BIT
+					? &(VkAttachmentReference){
+						.attachment = GFX_FRAMEBUFFER_INDEX_RSLVE,
+						.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+					}
+					: NULL,
 			},
 			// dependencies
 			.dependencyCount = 1,
@@ -1901,13 +1928,31 @@ void gfx_swapchain_init(VkSwapchainKHR old_swapchain) {
 		);
 
 	// ---- ---- ---- ----
+	// color
+	// ---- ---- ---- ----
+
+	VkFormat const color_format = fl_gfx.device.physical.surface_format.format;
+	gfx_image_create(
+		(uvec2){fl_gfx.swapchain.extent.width, fl_gfx.swapchain.extent.height},
+		color_format, 0, fl_gfx.device.physical.samples, VK_IMAGE_TILING_OPTIMAL,
+		VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,
+		VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+		&fl_gfx.swapchain.color_texture.handle, &fl_gfx.swapchain.color_texture.memory
+	);
+
+	gfx_image_view_create(fl_gfx.swapchain.color_texture.handle,
+		color_format, 0, VK_IMAGE_ASPECT_COLOR_BIT,
+		&fl_gfx.swapchain.color_texture.view
+	);
+
+	// ---- ---- ---- ----
 	// depth
 	// ---- ---- ---- ----
 
 	VkFormat const depth_format = gfx_find_depth_format();
 	gfx_image_create(
 		(uvec2){fl_gfx.swapchain.extent.width, fl_gfx.swapchain.extent.height},
-		depth_format, 0, VK_IMAGE_TILING_OPTIMAL,
+		depth_format, 0, fl_gfx.device.physical.samples, VK_IMAGE_TILING_OPTIMAL,
 		VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT,
 		VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
 		&fl_gfx.swapchain.depth_texture.handle, &fl_gfx.swapchain.depth_texture.memory
@@ -1925,10 +1970,16 @@ void gfx_swapchain_init(VkSwapchainKHR old_swapchain) {
 
 	fl_gfx.swapchain.framebuffers = os_memory_heap(NULL, sizeof(VkFramebuffer) * fl_gfx.swapchain.images_count);
 	for (uint32_t i = 0; i < fl_gfx.swapchain.images_count; i++) {
-		VkImageView const attachments[] = {
-			[GFX_FRAMEBUFFER_INDEX_COLOR] = fl_gfx.swapchain.image_views[i],
-			[GFX_FRAMEBUFFER_INDEX_DEPTH] = fl_gfx.swapchain.depth_texture.view,
-		};
+		VkImageView const * attachments = fl_gfx.device.physical.samples != VK_SAMPLE_COUNT_1_BIT
+			? (VkImageView[]){
+				[GFX_FRAMEBUFFER_INDEX_COLOR] = fl_gfx.swapchain.color_texture.view,
+				[GFX_FRAMEBUFFER_INDEX_DEPTH] = fl_gfx.swapchain.depth_texture.view,
+				[GFX_FRAMEBUFFER_INDEX_RSLVE] = fl_gfx.swapchain.image_views[i],
+			}
+			: (VkImageView[]){
+				[GFX_FRAMEBUFFER_INDEX_COLOR] = fl_gfx.swapchain.image_views[i],
+				[GFX_FRAMEBUFFER_INDEX_DEPTH] = fl_gfx.swapchain.depth_texture.view,
+			};
 		vkCreateFramebuffer(
 			fl_gfx.device.handle,
 			&(VkFramebufferCreateInfo){
@@ -1938,7 +1989,7 @@ void gfx_swapchain_init(VkSwapchainKHR old_swapchain) {
 				.height = fl_gfx.swapchain.extent.height,
 				.layers = 1,
 				// attachments
-				.attachmentCount = ArrayCount(attachments),
+				.attachmentCount = fl_gfx.device.physical.samples != VK_SAMPLE_COUNT_1_BIT ? 3 : 2,
 				.pAttachments = attachments,
 			},
 			&fl_gfx_allocator,
@@ -1957,6 +2008,9 @@ void gfx_swapchain_free(struct GFX_Swapchain swapchain) {
 
 	gfx_image_view_destroy(swapchain.depth_texture.view);
 	gfx_image_destroy(swapchain.depth_texture.handle, swapchain.depth_texture.memory);
+
+	gfx_image_view_destroy(swapchain.color_texture.view);
+	gfx_image_destroy(swapchain.color_texture.handle, swapchain.color_texture.memory);
 
 	for (uint32_t i = 0; i < swapchain.images_count; i++)
 		gfx_image_view_destroy(swapchain.image_views[i]);
@@ -2257,7 +2311,7 @@ void gfx_graphics_pipeline_init(void) {
 			// multisample
 			.pMultisampleState = &(VkPipelineMultisampleStateCreateInfo){
 				.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO,
-				.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT,
+				.rasterizationSamples = fl_gfx.device.physical.samples,
 			},
 			// blend
 			.pColorBlendState = &(VkPipelineColorBlendStateCreateInfo){
@@ -2490,7 +2544,7 @@ void gfx_texture_init(void) {
 
 	u32 const extra_mip_levels = (u32)log2_32((f32)max_u32(image.size.x, image.size.y));
 	gfx_image_create(
-		image.size, format, extra_mip_levels, VK_IMAGE_TILING_OPTIMAL,
+		image.size, format, extra_mip_levels, VK_SAMPLE_COUNT_1_BIT, VK_IMAGE_TILING_OPTIMAL,
 		VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
 		VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
 		&fl_gfx.texture.handle, &fl_gfx.texture.memory
