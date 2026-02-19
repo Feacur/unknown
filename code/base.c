@@ -5,7 +5,7 @@
 #include "os.h" // includes "base.h"
 
 /*
-@note floating point IEEE 754
+@info floating point IEEE 754
 
 | TYPE | BINARY REPRESENTATION                | FORMULA                                   | EFFECTIVE EXPONENT |
 | f16  | [sign:1][exponent: u5][mantissa:u10] | (1-S*2) * (1 + M/(2^10)) * (2^(E -   15)) | [  -15 ..   15]    |
@@ -28,7 +28,7 @@ consecutive integer range is [-2^(mantissa width + 1) .. 2^(mantissa width + 1)]
 
 
 
-@note coordinate system is left-handed
+@info coordinate system is left-handed
 
 Y (0, 1, 0) up
 |     
@@ -44,7 +44,7 @@ Z = cross(X, Y)
 
 
 
-@note designated initializers looks have nothing to do with ordering
+@info designated initializers looks have nothing to do with ordering
 
 > ROW-MAJOR ORDER means interpreting contiguous memory like this
                     +----------------+
@@ -95,7 +95,7 @@ Z = cross(X, Y)
 
 
 
-@note vectors
+@info vectors
 
 > imaginary basis
   +------------+
@@ -145,7 +145,7 @@ Z = cross(X, Y)
 
 
 
-@note quaternion
+@info quaternion
 
 > multiplication
   * NOT commutative `(q1 . q2)      != (q2 . q1)`
@@ -189,7 +189,7 @@ Z = cross(X, Y)
 
 
 
-@note matrices
+@info matrices
 
 > multiplication
   * NOT comutative `A * B       != B * A`
@@ -290,7 +290,7 @@ size_t align_size(size_t value, size_t align) {
 }
 
 u64 mul_div_u64(u64 value, u64 mul, u64 div) {
-	// @note `value * mul / div` equivalent
+	// it is a `value * mul / div` equivalent
 	// but with a tiny overflow protection
 	return (value / div) * mul
 	     + (value % div) * mul / div;
@@ -834,8 +834,7 @@ mat4 mat4_transformation_inverse(vec3 offset, quat rotation, vec3 scale) {
 		{axis_x.x, axis_y.x, axis_z.x, 0},
 		{axis_x.y, axis_y.y, axis_z.y, 0},
 		{axis_x.z, axis_y.z, axis_z.z, 0},
-		{
-			// @note inverse offset in inverted coordinates space
+		{ // @note inverse offset in inverted coordinates space
 			-vec3_dot(offset, axis_x),
 			-vec3_dot(offset, axis_y),
 			-vec3_dot(offset, axis_z),
@@ -885,6 +884,8 @@ mat4 mat4_projection(
 	};
 
 /*
+@info projection matrix
+
 > aim:
 map [-pos_xy   .. pos_xy]   -> [-1       .. 1]
 map [view_near .. view_far] -> [ndc_near .. ndc_far]

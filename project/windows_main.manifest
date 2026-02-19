@@ -3,6 +3,7 @@
 <assembly xmlns="urn:schemas-microsoft-com:asm.v1" manifestVersion="1.0" xmlns:asmv3="urn:schemas-microsoft-com:asm.v3">
   <asmv3:application>
 
+    <!-- @info win32 DPI -->
     <!-- https://learn.microsoft.com/windows/win32/hidpi/setting-the-default-dpi-awareness-for-a-process -->
     <asmv3:windowsSettings xmlns="http://schemas.microsoft.com/SMI/2005/WindowsSettings">
       <dpiAware>True/PM</dpiAware>
@@ -12,11 +13,13 @@
       <dpiAwareness>PerMonitorV2,PerMonitor</dpiAwareness>
     </asmv3:windowsSettings>
 
+    <!-- @info win32 file path limit -->
     <!-- https://learn.microsoft.com/windows/win32/fileio/maximum-file-path-limitation -->
     <asmv3:windowsSettings xmlns:ws2="http://schemas.microsoft.com/SMI/2016/WindowsSettings">
       <ws2:longPathAware>true</ws2:longPathAware>
     </asmv3:windowsSettings>
 
+    <!-- @info win32 UTF-8 -->
     <!-- https://learn.microsoft.com/windows/apps/design/globalizing/use-utf8-code-page -->
     <asmv3:windowsSettings xmlns="http://schemas.microsoft.com/SMI/2019/WindowsSettings">
       <activeCodePage>UTF-8</activeCodePage>
