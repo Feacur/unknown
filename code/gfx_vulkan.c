@@ -1667,7 +1667,7 @@ void gfx_synchronization_init(void) {
 				.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO,
 			},
 			&fl_gfx_allocator,
-			&fl_gfx.image_available_semaphores[i]
+			fl_gfx.image_available_semaphores + i
 		);
 	for (uint32_t i = 0; i < GFX_FRAMES_IN_FLIGHT; i++)
 		vkCreateSemaphore(
@@ -1676,7 +1676,7 @@ void gfx_synchronization_init(void) {
 				.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO,
 			},
 			&fl_gfx_allocator,
-			&fl_gfx.render_finished_semaphores[i]
+			fl_gfx.render_finished_semaphores + i
 		);
 	for (uint32_t i = 0; i < GFX_FRAMES_IN_FLIGHT; i++)
 		vkCreateFence(
@@ -1686,7 +1686,7 @@ void gfx_synchronization_init(void) {
 				.flags = VK_FENCE_CREATE_SIGNALED_BIT,
 			},
 			&fl_gfx_allocator,
-			&fl_gfx.in_flight_fences[i]
+			fl_gfx.in_flight_fences + i
 		);
 }
 
@@ -1925,7 +1925,7 @@ void gfx_swapchain_init(VkSwapchainKHR old_swapchain) {
 	for (uint32_t i = 0; i < fl_gfx.swapchain.images_count; i++)
 		gfx_image_view_create(fl_gfx.swapchain.images[i],
 			fl_gfx.device.physical.surface_format.format, 0, VK_IMAGE_ASPECT_COLOR_BIT,
-			&fl_gfx.swapchain.image_views[i]
+			fl_gfx.swapchain.image_views + i
 		);
 
 	// ---- ---- ---- ----
@@ -1994,7 +1994,7 @@ void gfx_swapchain_init(VkSwapchainKHR old_swapchain) {
 				.pAttachments = attachments,
 			},
 			&fl_gfx_allocator,
-			&fl_gfx.swapchain.framebuffers[i]
+			fl_gfx.swapchain.framebuffers + i
 		);
 	}
 }
@@ -2724,6 +2724,15 @@ void gfx_tick(void) {
 	}, VK_SUBPASS_CONTENTS_INLINE);
 
 	vkCmdBindPipeline(context.commands, VK_PIPELINE_BIND_POINT_GRAPHICS, fl_gfx.pipeline.handle);
+	vkCmdBindDescriptorSets(
+		context.commands,
+		VK_PIPELINE_BIND_POINT_GRAPHICS,
+		fl_gfx.pipeline.layout,
+		0, 1,
+		&fl_gfx.pipeline.descriptor_set.handles[frame],
+		0, NULL
+	);
+
 	vkCmdSetViewport(context.commands, 0, 1, &(VkViewport){
 		// offset, Y positive up
 		.x = (float)0,
@@ -2738,14 +2747,6 @@ void gfx_tick(void) {
 	vkCmdSetScissor(context.commands, 0, 1, &(VkRect2D){
 		.extent = fl_gfx.swapchain.extent,
 	});
-	vkCmdBindDescriptorSets(
-		context.commands,
-		VK_PIPELINE_BIND_POINT_GRAPHICS,
-		fl_gfx.pipeline.layout,
-		0, 1,
-		&fl_gfx.pipeline.descriptor_set.handles[frame],
-		0, NULL
-	);
 
 	vkCmdBindVertexBuffers(context.commands, 0, 1, &fl_gfx.model.handle, &fl_gfx.model.offset_vertex);
 	vkCmdBindIndexBuffer(context.commands, fl_gfx.model.handle, fl_gfx.model.offset_index, fl_gfx.model.index_type);

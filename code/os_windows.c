@@ -167,6 +167,7 @@ struct OS {
 	LONG_PTR pre_bfs_style;
 } fl_os;
 
+AttrGlobal()
 struct OS_Info g_os_info;
 
 #if OS_MESSAGING == OS_MESSAGING_TICK
@@ -670,6 +671,7 @@ void os_surface_get_size(u32 * width, u32 * height) {
 	*height = fl_os.height;
 }
 
+// #define VK_USE_PLATFORM_WIN32_KHR
 #include <vulkan/vulkan.h>
 #include <vulkan/vulkan_win32.h>
 
@@ -697,8 +699,7 @@ void * os_vulkan_create_surface(void * instance, void const * allocator) {
 // ---- ---- ---- ----
 
 u64 os_timer_get_nanos(void) {
-	LARGE_INTEGER value;
-	QueryPerformanceCounter(&value);
+	LARGE_INTEGER value; QueryPerformanceCounter(&value);
 	LONGLONG const elapsed = value.QuadPart - fl_os.timer_initial.QuadPart;
 	return mul_div_u64((u64)elapsed, AsNanos(1), (u64)fl_os.timer_frequency.QuadPart);
 }

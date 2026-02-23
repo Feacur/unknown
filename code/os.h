@@ -3,7 +3,7 @@
 
 #include "base.h" // IWYU pragma: keep
 
-AttrExternal()
+AttrGlobal() AttrExternal()
 struct OS_Info {
 	size_t page_size;
 } g_os_info;

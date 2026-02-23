@@ -1,6 +1,6 @@
 #version 450core
 #include "_project.inc"
-
+// compile with `%VULKAN_SDK%/Bin/glslc`
 
 
 
