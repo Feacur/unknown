@@ -554,6 +554,7 @@ uvec4 uvec4_divs(uvec4 l, u32 r);
 // attributes
 // ---- ---- ---- ----
 
+#define AttrGlobal() // dummy
 #define AttrFuncLocal() static
 #define AttrFileLocal() static
 #define AttrExternal() extern
@@ -586,28 +587,28 @@ uvec4 uvec4_divs(uvec4 l, u32 r);
 // constants
 // ---- ---- ---- ----
 
-AttrExternal() bits32 const bits_min32;
-AttrExternal() bits32 const bits_seq32;
-AttrExternal() bits32 const bits_lim32;
-AttrExternal() bits32 const bits_inf32;
-AttrExternal() bits32 const bits_qnan32;
-AttrExternal() bits32 const bits_snan32;
+AttrGlobal() AttrExternal() bits32 const bits_min32;
+AttrGlobal() AttrExternal() bits32 const bits_seq32;
+AttrGlobal() AttrExternal() bits32 const bits_lim32;
+AttrGlobal() AttrExternal() bits32 const bits_inf32;
+AttrGlobal() AttrExternal() bits32 const bits_qnan32;
+AttrGlobal() AttrExternal() bits32 const bits_snan32;
 
-AttrExternal() bits64 const bits_min64;
-AttrExternal() bits64 const bits_seq64;
-AttrExternal() bits64 const bits_lim64;
-AttrExternal() bits64 const bits_inf64;
-AttrExternal() bits64 const bits_qnan64;
-AttrExternal() bits64 const bits_snan64;
+AttrGlobal() AttrExternal() bits64 const bits_min64;
+AttrGlobal() AttrExternal() bits64 const bits_seq64;
+AttrGlobal() AttrExternal() bits64 const bits_lim64;
+AttrGlobal() AttrExternal() bits64 const bits_inf64;
+AttrGlobal() AttrExternal() bits64 const bits_qnan64;
+AttrGlobal() AttrExternal() bits64 const bits_snan64;
 
-AttrExternal() bits32 const bits_tau32;
-AttrExternal() bits64 const bits_tau64;
+AttrGlobal() AttrExternal() bits32 const bits_tau32;
+AttrGlobal() AttrExternal() bits64 const bits_tau64;
 
-AttrExternal() bits32 const bits_pi32;
-AttrExternal() bits64 const bits_pi64;
+AttrGlobal() AttrExternal() bits32 const bits_pi32;
+AttrGlobal() AttrExternal() bits64 const bits_pi64;
 
-AttrExternal() bits32 const bits_e32;
-AttrExternal() bits64 const bits_e64;
+AttrGlobal() AttrExternal() bits32 const bits_e32;
+AttrGlobal() AttrExternal() bits64 const bits_e64;
 
 #define MIN32  bits_min32.as_f
 #define SEQ32  bits_seq32.as_f
@@ -632,31 +633,31 @@ AttrExternal() bits64 const bits_e64;
 #define E32  bits_e32.as_f
 #define E64  bits_e64.as_f
 
-AttrExternal() vec2 const vec2_0;
-AttrExternal() vec2 const vec2_1;
-AttrExternal() vec2 const vec2_x1;
-AttrExternal() vec2 const vec2_y1;
+AttrGlobal() AttrExternal() vec2 const vec2_0;
+AttrGlobal() AttrExternal() vec2 const vec2_1;
+AttrGlobal() AttrExternal() vec2 const vec2_x1;
+AttrGlobal() AttrExternal() vec2 const vec2_y1;
 
-AttrExternal() vec3 const vec3_0;
-AttrExternal() vec3 const vec3_1;
-AttrExternal() vec3 const vec3_x1;
-AttrExternal() vec3 const vec3_y1;
-AttrExternal() vec3 const vec3_z1;
+AttrGlobal() AttrExternal() vec3 const vec3_0;
+AttrGlobal() AttrExternal() vec3 const vec3_1;
+AttrGlobal() AttrExternal() vec3 const vec3_x1;
+AttrGlobal() AttrExternal() vec3 const vec3_y1;
+AttrGlobal() AttrExternal() vec3 const vec3_z1;
 
-AttrExternal() vec4 const vec4_0;
-AttrExternal() vec4 const vec4_1;
-AttrExternal() vec4 const vec4_x1;
-AttrExternal() vec4 const vec4_y1;
-AttrExternal() vec4 const vec4_z1;
-AttrExternal() vec4 const vec4_w1;
+AttrGlobal() AttrExternal() vec4 const vec4_0;
+AttrGlobal() AttrExternal() vec4 const vec4_1;
+AttrGlobal() AttrExternal() vec4 const vec4_x1;
+AttrGlobal() AttrExternal() vec4 const vec4_y1;
+AttrGlobal() AttrExternal() vec4 const vec4_z1;
+AttrGlobal() AttrExternal() vec4 const vec4_w1;
 
-AttrExternal() quat const quat_i;
+AttrGlobal() AttrExternal() quat const quat_i;
 
-AttrExternal() mat2 const mat2_i;
+AttrGlobal() AttrExternal() mat2 const mat2_i;
 
-AttrExternal() mat3 const mat3_i;
+AttrGlobal() AttrExternal() mat3 const mat3_i;
 
-AttrExternal() mat4 const mat4_i;
+AttrGlobal() AttrExternal() mat4 const mat4_i;
 
 // ---- ---- ---- ----
 // memory
@@ -670,7 +671,7 @@ struct Arena_IInfo {
 struct Arena * arena_init(struct Arena_IInfo info);
 void arena_free(struct Arena * arena);
 
-u64 arena_get_position(struct Arena * arena);
+u64 arena_get_position(struct Arena const * arena);
 void arena_set_position(struct Arena * arena, u64 position);
 
 void * arena_push(struct Arena * arena, size_t size, size_t align);

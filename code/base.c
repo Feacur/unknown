@@ -987,64 +987,64 @@ uvec4 uvec4_divs(uvec4 l, u32 r) { return (uvec4){l.x / r, l.y / r, l.z / r, l.w
 // constants
 // ---- ---- ---- ----
 
-bits32 const bits_min32  = (bits32){.as_u = 0x00000001u};
-bits32 const bits_seq32  = (bits32){.as_u = 0x4b800000u}; // 2^24
-bits32 const bits_lim32  = (bits32){.as_u = 0x7f7fffffu}; // 2^127 * [1 .. 2)
-bits32 const bits_inf32  = (bits32){.as_u = 0x7f800000u}; // 2^128
-bits32 const bits_qnan32 = (bits32){.as_u = 0x7fc00000u}; // 2^128 * (1 .. 2)
-bits32 const bits_snan32 = (bits32){.as_u = 0x7fa00000u}; // 2^128 * (1 .. 2)
+AttrGlobal() bits32 const bits_min32  = (bits32){.as_u = 0x00000001u};
+AttrGlobal() bits32 const bits_seq32  = (bits32){.as_u = 0x4b800000u}; // 2^24
+AttrGlobal() bits32 const bits_lim32  = (bits32){.as_u = 0x7f7fffffu}; // 2^127 * [1 .. 2)
+AttrGlobal() bits32 const bits_inf32  = (bits32){.as_u = 0x7f800000u}; // 2^128
+AttrGlobal() bits32 const bits_qnan32 = (bits32){.as_u = 0x7fc00000u}; // 2^128 * (1 .. 2)
+AttrGlobal() bits32 const bits_snan32 = (bits32){.as_u = 0x7fa00000u}; // 2^128 * (1 .. 2)
 
-bits64 const bits_min64  = (bits64){.as_u = 0x0000000000000001ull};
-bits64 const bits_seq64  = (bits64){.as_u = 0x4340000000000000ull}; // 2^53
-bits64 const bits_lim64  = (bits64){.as_u = 0x7fefffffffffffffull}; // 2^1023 * [1 .. 2)
-bits64 const bits_inf64  = (bits64){.as_u = 0x7ff0000000000000ull}; // 2^1024
-bits64 const bits_qnan64 = (bits64){.as_u = 0x7ff8000000000000ull}; // 2^1024 * (1 .. 2)
-bits64 const bits_snan64 = (bits64){.as_u = 0x7ff4000000000000ull}; // 2^1024 * (1 .. 2)
+AttrGlobal() bits64 const bits_min64  = (bits64){.as_u = 0x0000000000000001ull};
+AttrGlobal() bits64 const bits_seq64  = (bits64){.as_u = 0x4340000000000000ull}; // 2^53
+AttrGlobal() bits64 const bits_lim64  = (bits64){.as_u = 0x7fefffffffffffffull}; // 2^1023 * [1 .. 2)
+AttrGlobal() bits64 const bits_inf64  = (bits64){.as_u = 0x7ff0000000000000ull}; // 2^1024
+AttrGlobal() bits64 const bits_qnan64 = (bits64){.as_u = 0x7ff8000000000000ull}; // 2^1024 * (1 .. 2)
+AttrGlobal() bits64 const bits_snan64 = (bits64){.as_u = 0x7ff4000000000000ull}; // 2^1024 * (1 .. 2)
 
-// ground truth, 20 digits after the decimal searator                 6.28318530717958647693
-bits32 const bits_tau32 = (bits32){.as_u = 0x40c90fdbu};           // 6.2831854f
-bits64 const bits_tau64 = (bits64){.as_u = 0x401921fb54442d18ull}; // 6.283185307179586
+// ground truth, 20 digits after the decimal searator                              6.28318530717958647693
+AttrGlobal() bits32 const bits_tau32 = (bits32){.as_u = 0x40c90fdbu};           // 6.2831854f
+AttrGlobal() bits64 const bits_tau64 = (bits64){.as_u = 0x401921fb54442d18ull}; // 6.283185307179586
 
-// ground truth, 20 digits after the decimal searator                3.14159265358979323846
-bits32 const bits_pi32 = (bits32){.as_u = 0x40490fdbu};           // 3.1415927f
-bits64 const bits_pi64 = (bits64){.as_u = 0x400921fb54442d18ull}; // 3.141592653589793
+// ground truth, 20 digits after the decimal searator                             3.14159265358979323846
+AttrGlobal() bits32 const bits_pi32 = (bits32){.as_u = 0x40490fdbu};           // 3.1415927f
+AttrGlobal() bits64 const bits_pi64 = (bits64){.as_u = 0x400921fb54442d18ull}; // 3.141592653589793
 
-// ground truth, 20 digits after the decimal searator                2.71828182845904523536
-bits32 const bits_e32  = (bits32){.as_u = 0x402df855u};           // 2.7182819f
-bits64 const bits_e64  = (bits64){.as_u = 0x4005bf0a8b145769ull}; // 2.718281828459045
+// ground truth, 20 digits after the decimal searator                             2.71828182845904523536
+AttrGlobal() bits32 const bits_e32  = (bits32){.as_u = 0x402df855u};           // 2.7182819f
+AttrGlobal() bits64 const bits_e64  = (bits64){.as_u = 0x4005bf0a8b145769ull}; // 2.718281828459045
 
-vec2 const vec2_0  = (vec2){0, 0};
-vec2 const vec2_1  = (vec2){1, 1};
-vec2 const vec2_x1 = (vec2){1, 0};
-vec2 const vec2_y1 = (vec2){0, 1};
+AttrGlobal() vec2 const vec2_0  = (vec2){0, 0};
+AttrGlobal() vec2 const vec2_1  = (vec2){1, 1};
+AttrGlobal() vec2 const vec2_x1 = (vec2){1, 0};
+AttrGlobal() vec2 const vec2_y1 = (vec2){0, 1};
 
-vec3 const vec3_0  = (vec3){0, 0, 0};
-vec3 const vec3_1  = (vec3){1, 1, 1};
-vec3 const vec3_x1 = (vec3){1, 0, 0};
-vec3 const vec3_y1 = (vec3){0, 1, 0};
-vec3 const vec3_z1 = (vec3){0, 0, 1};
+AttrGlobal() vec3 const vec3_0  = (vec3){0, 0, 0};
+AttrGlobal() vec3 const vec3_1  = (vec3){1, 1, 1};
+AttrGlobal() vec3 const vec3_x1 = (vec3){1, 0, 0};
+AttrGlobal() vec3 const vec3_y1 = (vec3){0, 1, 0};
+AttrGlobal() vec3 const vec3_z1 = (vec3){0, 0, 1};
 
-vec4 const vec4_0  = (vec4){0, 0, 0, 0};
-vec4 const vec4_1  = (vec4){1, 1, 1, 1};
-vec4 const vec4_x1 = (vec4){1, 0, 0, 0};
-vec4 const vec4_y1 = (vec4){0, 1, 0, 0};
-vec4 const vec4_z1 = (vec4){0, 0, 1, 0};
-vec4 const vec4_w1 = (vec4){0, 0, 0, 1};
+AttrGlobal() vec4 const vec4_0  = (vec4){0, 0, 0, 0};
+AttrGlobal() vec4 const vec4_1  = (vec4){1, 1, 1, 1};
+AttrGlobal() vec4 const vec4_x1 = (vec4){1, 0, 0, 0};
+AttrGlobal() vec4 const vec4_y1 = (vec4){0, 1, 0, 0};
+AttrGlobal() vec4 const vec4_z1 = (vec4){0, 0, 1, 0};
+AttrGlobal() vec4 const vec4_w1 = (vec4){0, 0, 0, 1};
 
-quat const quat_i = (quat){0, 0, 0, 1};
+AttrGlobal() quat const quat_i = (quat){0, 0, 0, 1};
 
-mat2 const mat2_i = (mat2){
+AttrGlobal() mat2 const mat2_i = (mat2){
 	{1, 0},
 	{0, 1},
 };
 
-mat3 const mat3_i = (mat3){
+AttrGlobal() mat3 const mat3_i = (mat3){
 	{1, 0, 0},
 	{0, 1, 0},
 	{0, 0, 1},
 };
 
-mat4 const mat4_i = (mat4){
+AttrGlobal() mat4 const mat4_i = (mat4){
 	{1, 0, 0, 0},
 	{0, 1, 0, 0},
 	{0, 0, 1, 0},
@@ -1099,7 +1099,7 @@ void arena_free(struct Arena * arena) {
 	}
 }
 
-u64 arena_get_position(struct Arena * arena) {
+u64 arena_get_position(struct Arena const * arena) {
 	struct Arena const * curr = arena->curr;
 	return curr->base + curr->offset;
 }
