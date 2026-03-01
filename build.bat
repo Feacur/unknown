@@ -122,7 +122,7 @@ goto :eof
 		%cc% "%code%/base.c" -o "base.o"
 		%cc% "%code%/os_windows.c" -o "os_windows.o"
 		%cc% "%code%/gfx_vulkan.c" -o "gfx_vulkan.o"
-		%cc% "%code%/main.c" -o "main.o"
+		%cc% "%code%/unknown.c"    -o "unknown.o"
 
 		%resc% "%project%/windows_main.rc" -fo "windows_main.res"
 
@@ -131,14 +131,14 @@ goto :eof
 	) | pause > nul
 
 	rem link
-	echo.[link main.exe] %time%
+	echo.[link unknown.exe] %time%
 	%linkd% ^
 		"%temp%/base.o" ^
 		"%temp%/os_windows.o" ^
 		"%VULKAN_SDK%/Lib/vulkan-1.lib" ^
 		"%temp%/gfx_vulkan.o" ^
-		"%temp%/main.o" "%temp%/windows_main.res" ^
-		-out:"main.exe"
+		"%temp%/unknown.o" "%temp%/windows_main.res" ^
+		-out:"unknown.exe"
 
 	echo.[  complete!  ] %time%
 goto :eof

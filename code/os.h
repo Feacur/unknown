@@ -44,12 +44,12 @@ struct OS_File_IInfo {
 };
 
 struct OS_File * os_file_init(struct OS_File_IInfo info);
-void os_file_free(struct OS_File * file);
+void os_file_free(struct OS_File * inst);
 
-u64 os_file_get_size(struct OS_File const * file);
-u64 os_file_get_write_nanos(struct OS_File const * file);
+u64 os_file_get_size(struct OS_File const * inst);
+u64 os_file_get_write_nanos(struct OS_File const * inst);
 
-u64 os_file_read(struct OS_File const * file, u64 offset_min, u64 offset_max, void * buffer);
+u64 os_file_read(struct OS_File const * inst, u64 offset_min, u64 offset_max, void * buffer);
 
 // ---- ---- ---- ----
 // time
@@ -88,8 +88,8 @@ struct OS_Thread_IInfo {
 };
 
 struct OS_Thread * os_thread_init(struct OS_Thread_IInfo info);
-void os_thread_free(struct OS_Thread * thread);
+void os_thread_free(struct OS_Thread * inst);
 
-void os_thread_join(struct OS_Thread * thread);
+void os_thread_join(struct OS_Thread * inst);
 
 #endif
