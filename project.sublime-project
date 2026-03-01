@@ -69,7 +69,7 @@
 				"cmd": [
 					"debug.bat",
 					"toolset:remedybg",
-					"target:main.exe",
+					"target:unknown.exe",
 				],
 			},
 			"quiet": true,
@@ -78,9 +78,7 @@
 			"name": "Run",
 			"working_dir": "${project_path:${folder}}",
 			"windows": {
-				"cmd": [
-					"build/main.exe",
-				],
+				"shell_cmd": "start /d \"build\" /b unknown.exe",
 			},
 			"quiet": true,
 		},

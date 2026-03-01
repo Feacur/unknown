@@ -22,9 +22,9 @@ int main(int argc, char * argv[]) {
 	thread_ctx_init();
 	gfx_init();
 
-	u64 const nanos_fixed_delta           = AsNanos(0.020000000);
-	u64 const nanos_variable_delta_limit  = AsNanos(0.050000000);
-	u64 const nanos_variable_delta_target = AsNanos(0.016666666);
+	u64 const nanos_fixed_delta           = SecondsToNanos(1.0 / 50.0);
+	u64 const nanos_variable_delta_limit  = SecondsToNanos(1.0 / 20.0);
+	u64 const nanos_variable_delta_target = SecondsToNanos(1.0 / 60.0);
 	Assert(nanos_variable_delta_limit >= nanos_variable_delta_target, "timer limit should be >= target\n");
 
 	u64 nanos_variable_delta = nanos_variable_delta_target;

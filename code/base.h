@@ -535,9 +535,7 @@ uvec4 uvec4_divs(uvec4 l, u32 r);
 # error not implemented
 #endif
 
-#define AsMillis(seconds) (u64)((seconds) * (u64)1000)
-#define AsMicros(seconds) (u64)((seconds) * (u64)1000000)
-#define AsNanos(seconds)  (u64)((seconds) * (u64)1000000000)
+#define SecondsToNanos(seconds)  (u64)((seconds) * (u64)1000000000)
 
 #define KB(value) ((u64)(value) << 10)
 #define MB(value) ((u64)(value) << 20)
@@ -549,6 +547,16 @@ uvec4 uvec4_divs(uvec4 l, u32 r);
 /**/    .count = sizeof("" value) - 1, \
 /**/    .buffer = (u8*)(value),        \
 /**/}                                  \
+
+#define AssertStatic(condition) \
+/**/typedef char assert_static  \
+/**/[(condition) ? 1 : -1]      \
+
+#define AssertSize(type, size)           \
+/**/AssertStatic(sizeof(type) == (size)) \
+
+#define AssertAlign(type, field, align)                \
+/**/AssertStatic(offsetof(type, field) % (align) == 0) \
 
 // ---- ---- ---- ----
 // attributes
@@ -659,6 +667,12 @@ AttrGlobal() AttrExternal() mat3 const mat3_i;
 
 AttrGlobal() AttrExternal() mat4 const mat4_i;
 
+#define ALIGN_F32  sizeof(f32)
+#define ALIGN_VEC2 (ALIGN_F32 * 2)
+#define ALIGN_VEC3 (ALIGN_F32 * 4)
+#define ALIGN_VEC4 (ALIGN_F32 * 4)
+#define ALIGN_MAT4 ALIGN_VEC4
+
 // ---- ---- ---- ----
 // memory
 // ---- ---- ---- ----
@@ -708,33 +722,33 @@ uint32_t fmt_buffer(char * out_buffer, char * fmt, ...);
 // images
 // ---- ---- ---- ----
 
-struct Image {
+struct File_Image {
 	size_t   scalar_size;
 	uvec2    size;
 	u8       channels;
 	void   * buffer;
 };
 
-struct Image image_init(arr8 const file);
-void image_free(struct Image * image);
+struct File_Image image_init(arr8 const file);
+void image_free(struct File_Image * resource);
 
 // ---- ---- ---- ----
 // models
 // ---- ---- ---- ----
 
-struct Model_Vertex {
+struct FVertex {
 	vec3 position;
 	vec2 texture;
 	vec3 normal;
 };
 
-struct Model;
-struct Model * model_init(char const * name);
-void model_free(struct Model * model);
+struct File_Model;
+struct File_Model * model_init(char const * name);
+void model_free(struct File_Model * resource);
 
-void model_dump_vertices(struct Model * model, struct Arena * scratch,
-	struct Model_Vertex ** out_vertices, u32 * out_vertices_count,
-	u16                 ** out_indices,  u16 * out_indices_count
+void model_dump_vertices(struct File_Model * model, struct Arena * scratch,
+	struct FVertex ** out_vertices, u32 * out_vertices_count,
+	u16            ** out_indices,  u16 * out_indices_count
 );
 
 // ---- ---- ---- ----
@@ -742,6 +756,7 @@ void model_dump_vertices(struct Model * model, struct Arena * scratch,
 // ---- ---- ---- ----
 
 #define FileLine __FILE__ ":" StrMacro(__LINE__)
+
 
 #if defined (__has_builtin) && __has_builtin(__builtin_debugtrap)
 // @note it's a clang feature
@@ -759,16 +774,6 @@ void DebugBreak(void);
 #else
 #error not implemented
 #endif
-
-#define AssertStatic(condition) \
-/**/typedef char assert_static  \
-/**/[(condition) ? 1 : -1]      \
-
-#define AssertSize(type, size)           \
-/**/AssertStatic(sizeof(type) == (size)) \
-
-#define AssertAlign(type, field, align)                \
-/**/AssertStatic(offsetof(type, field) % (align) == 0) \
 
 
 #if BUILD_DEBUG == BUILD_DEBUG_ENABLE

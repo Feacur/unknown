@@ -15,24 +15,26 @@ layout(location = 2) in vec3 in_normal;
 layout(location = 0) out vec2 fragment_texture;
 layout(location = 1) out vec3 fragment_normal;
 
-// layout(binding = 0) uniform UModel {
-// 	mat4 transform;
-// } u_model;
-
-// layout(binding = 1) uniform UCamera {
-// 	mat4 transform;
-// 	mat4 projection;
-// 	mat4 premultiplied;
-// } u_camera;
-
 layout(binding = 0) uniform UData {
 	mat4 model;
 	mat4 view;
 	mat4 projection;
 } u_data;
 
+// layout(binding = 0) uniform UGlobal {
+// 	mat4 camera; // projection * view
+// } u_global;
+
+// layout(binding = 1) uniform UInstance {
+// 	mat4 model;
+// } u_instance;
+
+// layout(binding = 2) uniform UMaterial {
+// 	vec2 scale;
+// } u_instance;
+
 void main() {
-	// gl_Position = u_camera.premultiplied * u_model.transform * vec4(in_position, 0.0, 1.0);
+	// gl_Position = u_global.camera * u_instance.model * vec4(in_position, 0.0, 1.0);
 	gl_Position = u_data.projection * u_data.view * u_data.model * vec4(in_position, 1.0);
 	fragment_texture = in_texture;
 	fragment_normal = in_normal;
