@@ -1274,14 +1274,14 @@ uint32_t fmt_buffer(char * out_buffer, char * fmt, ...) {
 # include <stb/stb_image.h>
 #include "_internal/warnings_pop.h"
 
-struct Image image_init(arr8 const file) {
+struct File_Image image_init(arr8 const bytes) {
 	stbi_set_flip_vertically_on_load(1);
 	int const channels_override = STBI_rgb_alpha;
 
 	int size_x, size_y, channels;
-	stbi_uc * image = stbi_load_from_memory(file.buffer, (int)file.count, &size_x, &size_y, &channels, channels_override);
+	stbi_uc * image = stbi_load_from_memory(bytes.buffer, (int)bytes.count, &size_x, &size_y, &channels, channels_override);
 
-	return (struct Image){
+	return (struct File_Image){
 		.scalar_size = sizeof(stbi_uc),
 		.size        = {(u32)size_x, (u32)size_y},
 		.channels    = (u8)(channels_override ? channels_override : channels),
@@ -1289,9 +1289,9 @@ struct Image image_init(arr8 const file) {
 	};
 }
 
-void image_free(struct Image * image) {
-	STBI_FREE(image->buffer);
-	mem_zero(image, sizeof(*image));
+void image_free(struct File_Image * inst) {
+	STBI_FREE(inst->buffer);
+	mem_zero(inst, sizeof(*inst));
 }
 
 // ---- ---- ---- ----
@@ -1309,7 +1309,7 @@ void image_free(struct Image * image) {
 # include <tinyobj_loader_c.h>
 #include "_internal/warnings_pop.h"
 
-struct Model {
+struct File_Model {
 	tinyobj_attrib_t     attrib;
 	tinyobj_shape_t    * shapes;    size_t shapes_num;
 	tinyobj_material_t * materials; size_t materials_num;
@@ -1322,26 +1322,26 @@ u32 model_hash_tovi(void const * opaque) {
 }
 
 AttrFileLocal()
-struct Model_Vertex model_tovi_to_vertex(struct Model * model, tinyobj_vertex_index_t tovi) {
-	struct Model_Vertex vertex = {0};
+struct FVertex model_tovi_to_vertex(struct File_Model * inst, tinyobj_vertex_index_t tovi) {
+	struct FVertex vertex = {0};
 	if (tovi.v_idx >= 0) {
 		vertex.position = (vec3){
-			.x = model->attrib.vertices[3 * tovi.v_idx + 0],
-			.y = model->attrib.vertices[3 * tovi.v_idx + 1],
-			.z = model->attrib.vertices[3 * tovi.v_idx + 2],
+			.x = inst->attrib.vertices[3 * tovi.v_idx + 0],
+			.y = inst->attrib.vertices[3 * tovi.v_idx + 1],
+			.z = inst->attrib.vertices[3 * tovi.v_idx + 2],
 		};
 	}
 	if (tovi.vt_idx >= 0) {
 		vertex.texture = (vec2){
-			.x = model->attrib.texcoords[2 * tovi.vt_idx + 0],
-			.y = model->attrib.texcoords[2 * tovi.vt_idx + 1],
+			.x = inst->attrib.texcoords[2 * tovi.vt_idx + 0],
+			.y = inst->attrib.texcoords[2 * tovi.vt_idx + 1],
 		};
 	}
 	if (tovi.vn_idx >= 0) {
 		vertex.normal = (vec3){
-			.x = model->attrib.normals[3 * tovi.vn_idx + 0],
-			.y = model->attrib.normals[3 * tovi.vn_idx + 1],
-			.z = model->attrib.normals[3 * tovi.vn_idx + 2],
+			.x = inst->attrib.normals[3 * tovi.vn_idx + 0],
+			.y = inst->attrib.normals[3 * tovi.vn_idx + 1],
+			.z = inst->attrib.normals[3 * tovi.vn_idx + 2],
 		};
 	}
 	return vertex;
@@ -1350,41 +1350,41 @@ struct Model_Vertex model_tovi_to_vertex(struct Model * model, tinyobj_vertex_in
 AttrFileLocal()
 void model_init_read_file(void *ctx, const char *filename, int is_mtl, const char *obj_filename, char **buf, size_t *len) {
 	struct Arena * scratch = ctx;
-	arr8 const file = base_file_read(scratch, filename);
-	*buf = (void *)file.buffer;
-	*len = file.count;
+	arr8 const file_bytes = base_file_read(scratch, filename);
+	*buf = (void *)file_bytes.buffer;
+	*len = file_bytes.count;
 }
 
-struct Model * model_init(char const * name) {
+struct File_Model * model_init(char const * name) {
 	struct Arena * scratch = thread_ctx_get_scratch();
 	u64 const scratch_position = arena_get_position(scratch);
 
-	struct Model * model = os_memory_heap(NULL, sizeof(*model));
-	model->status = tinyobj_parse_obj(&model->attrib,
-		&model->shapes, &model->shapes_num,
-		&model->materials, &model->materials_num,
+	struct File_Model * file_parsed = os_memory_heap(NULL, sizeof(*file_parsed));
+	file_parsed->status = tinyobj_parse_obj(&file_parsed->attrib,
+		&file_parsed->shapes, &file_parsed->shapes_num,
+		&file_parsed->materials, &file_parsed->materials_num,
 		name, model_init_read_file, scratch,
 		TINYOBJ_FLAG_TRIANGULATE
 	);
 
 	arena_set_position(scratch, scratch_position);
-	return model;
+	return file_parsed;
 }
 
-void model_free(struct Model * model) {
-	tinyobj_attrib_free(&model->attrib);
-	if (model->shapes) tinyobj_shapes_free(model->shapes, model->shapes_num);
-	if (model->materials) tinyobj_materials_free(model->materials, model->materials_num);
-	mem_zero(model, sizeof(*model));
-	os_memory_heap(model, 0);
+void model_free(struct File_Model * inst) {
+	tinyobj_attrib_free(&inst->attrib);
+	if (inst->shapes) tinyobj_shapes_free(inst->shapes, inst->shapes_num);
+	if (inst->materials) tinyobj_materials_free(inst->materials, inst->materials_num);
+	mem_zero(inst, sizeof(*inst));
+	os_memory_heap(inst, 0);
 }
 
-void model_dump_vertices(struct Model * model, struct Arena * scratch,
-	struct Model_Vertex ** out_vertices, u32 * out_vertices_count,
-	u16                 ** out_indices,  u16 * out_indices_count
+void model_dump_vertices(struct File_Model * inst, struct Arena * scratch,
+	struct FVertex ** out_vertices, u32 * out_vertices_count,
+	u16            ** out_indices,  u16 * out_indices_count
 ) {
-	u32 const indices_count        = model->attrib.num_faces;
-	struct Model_Vertex * vertices = ArenaPushArray(scratch, struct Model_Vertex, indices_count);
+	u32 const indices_count        = inst->attrib.num_faces;
+	struct FVertex * vertices = ArenaPushArray(scratch, struct FVertex, indices_count);
 	u16                 * indices  = ArenaPushArray(scratch, u16,                 indices_count);
 	*out_vertices = vertices; *out_indices  = indices;
 
@@ -1393,10 +1393,10 @@ void model_dump_vertices(struct Model * model, struct Arena * scratch,
 
 	u16 unique_vertices_count = 0;
 	for (u32 i = 0; i < indices_count; i++) {
-		tinyobj_vertex_index_t const tovi = model->attrib.faces[i];
+		tinyobj_vertex_index_t const tovi = inst->attrib.faces[i];
 		u16 index = unique_vertices_count;
 		if (!table_get_or_set(&tovi_to_index, &tovi, &index)) {
-			*vertices++ = model_tovi_to_vertex(model, tovi);
+			*vertices++ = model_tovi_to_vertex(inst, tovi);
 			unique_vertices_count++;
 		}
 		*indices++ = index;

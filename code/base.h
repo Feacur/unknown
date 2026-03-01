@@ -708,33 +708,33 @@ uint32_t fmt_buffer(char * out_buffer, char * fmt, ...);
 // images
 // ---- ---- ---- ----
 
-struct Image {
+struct File_Image {
 	size_t   scalar_size;
 	uvec2    size;
 	u8       channels;
 	void   * buffer;
 };
 
-struct Image image_init(arr8 const file);
-void image_free(struct Image * image);
+struct File_Image image_init(arr8 const file);
+void image_free(struct File_Image * resource);
 
 // ---- ---- ---- ----
 // models
 // ---- ---- ---- ----
 
-struct Model_Vertex {
+struct FVertex {
 	vec3 position;
 	vec2 texture;
 	vec3 normal;
 };
 
-struct Model;
-struct Model * model_init(char const * name);
-void model_free(struct Model * model);
+struct File_Model;
+struct File_Model * model_init(char const * name);
+void model_free(struct File_Model * resource);
 
-void model_dump_vertices(struct Model * model, struct Arena * scratch,
-	struct Model_Vertex ** out_vertices, u32 * out_vertices_count,
-	u16                 ** out_indices,  u16 * out_indices_count
+void model_dump_vertices(struct File_Model * model, struct Arena * scratch,
+	struct FVertex ** out_vertices, u32 * out_vertices_count,
+	u16            ** out_indices,  u16 * out_indices_count
 );
 
 // ---- ---- ---- ----

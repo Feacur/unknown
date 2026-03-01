@@ -22,7 +22,7 @@ UINT_PTR const fl_os_sizemove_fiber_timer_id = 0;
 // ---- ---- ---- ----
 
 AttrFileLocal()
-str8 os_to_string_signal(int value) {
+str8 os_to_string_for_signal(int value) {
 	switch (value) {
 		case SIGABRT:  return str8_lit("abort()");
 		case SIGBREAK: return str8_lit("Ctrl+Break");
@@ -36,7 +36,7 @@ str8 os_to_string_signal(int value) {
 }
 
 AttrFileLocal()
-str8 os_to_string_processor_architecture(DWORD value) {
+str8 os_to_string_for_processor_architecture(DWORD value) {
 	switch (value) {
 		case PROCESSOR_ARCHITECTURE_INTEL:          return str8_lit("Intel");
 		case PROCESSOR_ARCHITECTURE_MIPS:           return str8_lit("MIPS");
@@ -59,7 +59,7 @@ str8 os_to_string_processor_architecture(DWORD value) {
 }
 
 AttrFileLocal()
-str8 os_to_string_processor_type(DWORD value) {
+str8 os_to_string_for_processor_type(DWORD value) {
 	switch (value) {
 		case PROCESSOR_INTEL_386:     return str8_lit("Intel 386");
 		case PROCESSOR_INTEL_486:     return str8_lit("Intel 486");
@@ -111,7 +111,7 @@ LONG os_vectored_exception_handler(EXCEPTION_POINTERS * ExceptionInfo) {
 
 AttrFileLocal() __CRTDECL
 void os_signal_handler(int signal) {
-	str8 signal_text = os_to_string_signal(signal);
+	str8 signal_text = os_to_string_for_signal(signal);
 	AssertF(false, "[os] signal %.*s\n", (int)signal_text.count, signal_text.buffer);
 	// @info IPC signals
 	// https://learn.microsoft.com/cpp/c-runtime-library/reference/signal
@@ -232,8 +232,6 @@ void os_syscommand_tick(void) {
 		case OS_MOVE_WINDOW_BOTTOM:                              rect.bottom += offset.y; break;
 		case OS_MOVE_WINDOW_BOTTOMLEFT:  rect.left  += offset.x; rect.bottom += offset.y; break;
 		case OS_MOVE_WINDOW_BOTTOMRIGHT: rect.right += offset.x; rect.bottom += offset.y; break;
-
-		default: break;
 	}
 
 	MoveWindow(
@@ -462,8 +460,8 @@ void os_init(struct OS_IInfo info) {
 		.page_size = system_info.dwPageSize,
 	};
 
-	str8 const processor_arch_text = os_to_string_processor_architecture(system_info.wProcessorArchitecture);
-	str8 const processor_type_text = os_to_string_processor_type(system_info.dwProcessorType);
+	str8 const processor_arch_text = os_to_string_for_processor_architecture(system_info.wProcessorArchitecture);
+	str8 const processor_type_text = os_to_string_for_processor_type(system_info.dwProcessorType);
 
 	fmt_print("[os] info:\n");
 	fmt_print("- memory\n");
@@ -600,25 +598,25 @@ struct OS_File * os_file_init(struct OS_File_IInfo info) {
 	// https://learn.microsoft.com/windows/win32/api/fileapi/nf-fileapi-createfilea
 }
 
-void os_file_free(struct OS_File * file) {
-	BOOL const ok = CloseHandle(file->handle);
+void os_file_free(struct OS_File * inst) {
+	BOOL const ok = CloseHandle(inst->handle);
 	Assert(ok == TRUE, "[os] `CloseHandle` failed\n");
-	mem_zero(file, sizeof(*file));
-	os_memory_heap(file, 0);
+	mem_zero(inst, sizeof(*inst));
+	os_memory_heap(inst, 0);
 }
 
-u64 os_file_get_size(struct OS_File const * file) {
+u64 os_file_get_size(struct OS_File const * inst) {
 	LARGE_INTEGER ret;
-	BOOL const ok = GetFileSizeEx(file->handle, &ret);
+	BOOL const ok = GetFileSizeEx(inst->handle, &ret);
 	Assert(ok == TRUE, "[os] `GetFileSizeEx` failed\n");
 	return (u64)ret.QuadPart;
 	// @info win32 file size
 	// https://learn.microsoft.com/windows/win32/api/fileapi/nf-fileapi-getfilesizeex
 }
 
-u64 os_file_get_write_nanos(struct OS_File const * file) {
+u64 os_file_get_write_nanos(struct OS_File const * inst) {
 	FILETIME write_time;
-	BOOL const ok = GetFileTime(file->handle, NULL, NULL, &write_time);
+	BOOL const ok = GetFileTime(inst->handle, NULL, NULL, &write_time);
 	Assert(ok == TRUE, "[os] `GetFileTime` failed\n");
 	// copy the low- and high-order parts
 	// of the file time to a ULARGE_INTEGER structure,
@@ -635,7 +633,7 @@ u64 os_file_get_write_nanos(struct OS_File const * file) {
 	// https://learn.microsoft.com/windows/win32/api/minwinbase/ns-minwinbase-filetime
 }
 
-u64 os_file_read(struct OS_File const * file, u64 offset_min, u64 offset_max, void * buffer) {
+u64 os_file_read(struct OS_File const * inst, u64 offset_min, u64 offset_max, void * buffer) {
 	AttrFuncLocal() u64 const chunk_limit = ~(DWORD)0;
 	u64 ret = 0;
 	for (u64 offset = offset_min; offset < offset_max; (void)0) {
@@ -649,7 +647,7 @@ u64 os_file_read(struct OS_File const * file, u64 offset_min, u64 offset_max, vo
 		// @note for synchronous reads only (without `FILE_FLAG_OVERLAPPED` flag)
 		// otherwise if `ok == FALSE` and `GetLastError() == ERROR_IO_PENDING`
 		// overlapped offset should be kept intact until the response
-		BOOL const ok = ReadFile(file->handle, (u8*)buffer + ret, requested_size, &received_size, &overlapped_offset);
+		BOOL const ok = ReadFile(inst->handle, (u8*)buffer + ret, requested_size, &received_size, &overlapped_offset);
 		Assert(ok == TRUE, "[os] `ReadFile` failed\n");
 
 		offset += received_size;
@@ -699,7 +697,7 @@ void * os_vulkan_create_surface(void * instance, void const * allocator) {
 // ---- ---- ---- ----
 
 u64 os_timer_get_nanos(void) {
-	LARGE_INTEGER value; QueryPerformanceCounter(&value);
+	LARGE_INTEGER value = {0}; QueryPerformanceCounter(&value);
 	LONGLONG const elapsed = value.QuadPart - fl_os.timer_initial.QuadPart;
 	return mul_div_u64((u64)elapsed, AsNanos(1), (u64)fl_os.timer_frequency.QuadPart);
 }
@@ -819,15 +817,15 @@ struct OS_Thread * os_thread_init(struct OS_Thread_IInfo info) {
 	// https://learn.microsoft.com/windows/win32/api/processthreadsapi/nf-processthreadsapi-createthread
 }
 
-void os_thread_free(struct OS_Thread * thread) {
-	BOOL const ok = CloseHandle(thread->handle);
+void os_thread_free(struct OS_Thread * inst) {
+	BOOL const ok = CloseHandle(inst->handle);
 	Assert(ok == TRUE, "[os] `CloseHandle` failed\n");
-	mem_zero(thread, sizeof(*thread));
-	os_memory_heap(thread, 0);
+	mem_zero(inst, sizeof(*inst));
+	os_memory_heap(inst, 0);
 }
 
-void os_thread_join(struct OS_Thread * thread) {
-	WaitForSingleObject(thread->handle, INFINITE);
+void os_thread_join(struct OS_Thread * inst) {
+	WaitForSingleObject(inst->handle, INFINITE);
 }
 
 // ---- ---- ---- ----
