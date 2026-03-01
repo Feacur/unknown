@@ -12,7 +12,7 @@ for %%a in (%*) do (
 
 rem prepare
 if [%toolset%] == [] set toolset=remedybg
-if [%target%]  == [] set target=main.exe
+if [%target%]  == [] set target=unknown.exe
 if not exist "build/%target%" (exit /b 1)
 
 rem debug
