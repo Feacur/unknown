@@ -1187,7 +1187,7 @@ arr8 base_file_read(struct Arena * arena, char const * name) {
 	if (file != NULL) {
 		u64 const required = os_file_get_size(file);
 		ret.capacity = min_u64(required + 1, ~ret.capacity);
-		AssertF(required <= ret.capacity, "file \"%s\" is too large %llu / %zu\n", name, required, ret.capacity);
+		AssertF(required <= ret.capacity, "[base] file \"%s\" is too large %llu / %zu\n", name, required, ret.capacity);
 		ret.buffer = ArenaPushArray(arena, u8, ret.capacity);
 		ret.count = os_file_read(file, 0, ret.capacity, ret.buffer);
 		if (ret.count < ret.capacity) ret.buffer[ret.count] = 0;

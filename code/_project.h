@@ -26,6 +26,7 @@
 # pragma GCC diagnostic error "-Wparentheses"
 # pragma GCC diagnostic error "-Wstrict-prototypes"
 # pragma GCC diagnostic error "-Wc23-extensions"
+# pragma GCC diagnostic error "-Wgnu-empty-struct"
 
 # pragma GCC diagnostic error "-Wmissing-braces"
 # pragma GCC diagnostic error "-Wmissing-field-initializers"
