@@ -58,10 +58,14 @@ u64 os_file_read(struct OS_File const * inst, u64 offset_min, u64 offset_max, vo
 u64 os_timer_get_nanos(void);
 
 // ---- ---- ---- ----
-// memory
+// memory: heap
 // ---- ---- ---- ----
 
 void * os_memory_heap(void * ptr, size_t size);
+
+// ---- ---- ---- ----
+// memory: virtual
+// ---- ---- ---- ----
 
 void * os_memory_reserve(size_t size);
 void   os_memory_release(void * ptr, size_t size);
@@ -70,12 +74,12 @@ void   os_memory_commit(void * ptr, size_t size);
 void   os_memory_decommit(void * ptr, size_t size);
 
 // ---- ---- ---- ----
-// shared
+// shared library
 // ---- ---- ---- ----
 
-void * os_shared_load(char * name);
-void   os_shared_drop(void * inst);
-void * os_shared_find(void * inst, char * name);
+void * os_shared_library_load(char * name);
+void   os_shared_library_drop(void * inst);
+void * os_shared_library_find(void * inst, char * name);
 
 // ---- ---- ---- ----
 // thread
