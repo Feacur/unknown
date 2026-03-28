@@ -29,10 +29,10 @@ goto :eof
 		exit /b 1
 	)
 
-	set dbg=start /d "build" /b /wait remedybg -g -q
+	set DBG=start /d "build" /b /wait remedybg -g -q
 
 	echo.[debug with remedybg]
-	%dbg% "%target%"
+	%DBG% "%target%"
 	echo.[remedybg debug ended]
 goto :eof
 
@@ -42,9 +42,9 @@ goto :eof
 		exit /b 1
 	)
 
-	set dbg=start /d "build" /b /wait raddbg --auto_run
+	set DBG=start /d "build" /b /wait raddbg --auto_run
 
 	echo.[debug with raddbg]
-	%dbg% "%target%"
+	%DBG% "%target%"
 	echo.[raddbg debug ended]
 goto :eof

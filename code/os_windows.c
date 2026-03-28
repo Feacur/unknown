@@ -103,7 +103,7 @@ LONG os_vectored_exception_handler(EXCEPTION_POINTERS * ExceptionInfo) {
 			break;
 
 		default:
-			AssertF(!(flags & EXCEPTION_NONCONTINUABLE), "[os] exception 0x%lx\n", code);
+			AssertF(!(flags & EXCEPTION_NONCONTINUABLE), "[OS] exception 0x%lx\n", code);
 			break;
 	}
 	return EXCEPTION_CONTINUE_SEARCH;
@@ -112,7 +112,7 @@ LONG os_vectored_exception_handler(EXCEPTION_POINTERS * ExceptionInfo) {
 AttrFileLocal() __CRTDECL
 void os_signal_handler(int signal) {
 	str8 signal_text = os_to_string_for_signal(signal);
-	AssertF(false, "[os] signal %.*s\n", (int)signal_text.count, signal_text.buffer);
+	AssertF(false, "[OS] signal %.*s\n", (int)signal_text.count, signal_text.buffer);
 	// @info IPC signals
 	// https://learn.microsoft.com/cpp/c-runtime-library/reference/signal
 	// https://learn.microsoft.com/windows/console/ctrl-c-and-ctrl-break-signals
@@ -250,8 +250,9 @@ void os_toggle_borderless_fullscreen(void) {
 	LONG_PTR const window_style = GetWindowLongPtr(fl_os.window, GWL_STYLE);
 
 	if (window_style & WS_CAPTION) { // set borderless fullscreen mode
+		HMONITOR const monitor = MonitorFromWindow(fl_os.window, MONITOR_DEFAULTTOPRIMARY);
 		MONITORINFO monitor_info = {.cbSize = sizeof(MONITORINFO)};
-		if (!GetMonitorInfo(MonitorFromWindow(fl_os.window, MONITOR_DEFAULTTOPRIMARY), &monitor_info))
+		if (!GetMonitorInfo(monitor, &monitor_info))
 			goto finalize;
 
 		WINDOWPLACEMENT placement = {.length = sizeof(placement)};
@@ -325,16 +326,16 @@ LRESULT os_window_procedure(HWND window, UINT message, WPARAM wparam, LPARAM lpa
 		case WM_CREATE:
 			// CREATESTRUCT const * create = (void *)lparam;
 			// void const * create_params = create->lpCreateParams;
-			fmt_print("[os] WM_CREATE 0x%p\n\n", (void *)window);
+			fmt_print("[OS] WM_CREATE 0x%p\n\n", (void *)window);
 			return 0;
 
 		case WM_CLOSE:
-			fmt_print("[os] WM_CLOSE 0x%p\n\n", (void *)window);
+			fmt_print("[OS] WM_CLOSE 0x%p\n\n", (void *)window);
 			DestroyWindow(window);
 			return 0;
 
 		case WM_DESTROY:
-			fmt_print("[os] WM_DESTROY 0x%p\n\n", (void *)window);
+			fmt_print("[OS] WM_DESTROY 0x%p\n\n", (void *)window);
 			if (fl_os.window == window) {
 				fl_os.window = NULL;
 				PostQuitMessage(0);
@@ -463,7 +464,7 @@ void os_init(struct OS_IInfo info) {
 	str8 const processor_arch_text = os_to_string_for_processor_architecture(system_info.wProcessorArchitecture);
 	str8 const processor_type_text = os_to_string_for_processor_type(system_info.dwProcessorType);
 
-	fmt_print("[os] info:\n");
+	fmt_print("[OS] info:\n");
 	fmt_print("- memory\n");
 	fmt_print("  page size: %lu\n", system_info.dwPageSize);
 	fmt_print("  addr min:  0x%p\n", system_info.lpMinimumApplicationAddress);
@@ -533,7 +534,7 @@ void os_free(void) {
 	{
 		HEAP_SUMMARY summary = {.cb = sizeof(summary)};
 		HeapSummary(fl_os.heap, 0, &summary);
-		Assert(summary.cbAllocated == 0, "[os] heap memory leak\n");
+		Assert(summary.cbAllocated == 0, "[OS] heap memory leak\n");
 	}
 	HeapDestroy(fl_os.heap);
 
@@ -590,7 +591,7 @@ struct OS_File * os_file_init(struct OS_File_IInfo info) {
 	HANDLE const handle = CreateFileA(info.name, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
 	if (handle == INVALID_HANDLE_VALUE)
 		return NULL;
-	struct OS_File * ret = os_memory_heap(NULL, sizeof(*ret));
+	struct OS_File * ret = os_memory_global_heap(NULL, sizeof(*ret));
 	ret->info = info;
 	ret->handle = handle;
 	return ret;
@@ -600,15 +601,15 @@ struct OS_File * os_file_init(struct OS_File_IInfo info) {
 
 void os_file_free(struct OS_File * inst) {
 	BOOL const ok = CloseHandle(inst->handle);
-	Assert(ok == TRUE, "[os] `CloseHandle` failed\n");
+	Assert(ok == TRUE, "[OS] `CloseHandle` failed\n");
 	mem_zero(inst, sizeof(*inst));
-	os_memory_heap(inst, 0);
+	os_memory_global_heap(inst, 0);
 }
 
 u64 os_file_get_size(struct OS_File const * inst) {
 	LARGE_INTEGER ret;
 	BOOL const ok = GetFileSizeEx(inst->handle, &ret);
-	Assert(ok == TRUE, "[os] `GetFileSizeEx` failed\n");
+	Assert(ok == TRUE, "[OS] `GetFileSizeEx` failed\n");
 	return (u64)ret.QuadPart;
 	// @info win32 file size
 	// https://learn.microsoft.com/windows/win32/api/fileapi/nf-fileapi-getfilesizeex
@@ -617,7 +618,7 @@ u64 os_file_get_size(struct OS_File const * inst) {
 u64 os_file_get_write_nanos(struct OS_File const * inst) {
 	FILETIME write_time;
 	BOOL const ok = GetFileTime(inst->handle, NULL, NULL, &write_time);
-	Assert(ok == TRUE, "[os] `GetFileTime` failed\n");
+	Assert(ok == TRUE, "[OS] `GetFileTime` failed\n");
 	// copy the low- and high-order parts
 	// of the file time to a ULARGE_INTEGER structure,
 	// perform 64-bit arithmetic on the QuadPart member
@@ -648,7 +649,7 @@ u64 os_file_read(struct OS_File const * inst, u64 offset_min, u64 offset_max, vo
 		// otherwise if `ok == FALSE` and `GetLastError() == ERROR_IO_PENDING`
 		// overlapped offset should be kept intact until the response
 		BOOL const ok = ReadFile(inst->handle, (u8*)buffer + ret, requested_size, &received_size, &overlapped_offset);
-		Assert(ok == TRUE, "[os] `ReadFile` failed\n");
+		Assert(ok == TRUE, "[OS] `ReadFile` failed\n");
 
 		offset += received_size;
 		ret += received_size;
@@ -708,23 +709,23 @@ u64 os_timer_get_nanos(void) {
 // memory
 // ---- ---- ---- ----
 
-void * os_memory_heap(void * ptr, size_t size) {
+void * os_memory_global_heap(void * ptr, size_t size) {
 	if (size > 0)
 	{
 		if (ptr == NULL)
 		{
 			void * ret = HeapAlloc(fl_os.heap, HEAP_GENERATE_EXCEPTIONS | HEAP_ZERO_MEMORY, size);
-			AssertF(ret != NULL, "[os] `HeapAlloc(%zu)` failed\n", size);
+			AssertF(ret != NULL, "[OS] `HeapAlloc(%zu)` failed\n", size);
 			return ret;
 		}
 		void * ret = HeapReAlloc(fl_os.heap, HEAP_GENERATE_EXCEPTIONS | HEAP_ZERO_MEMORY, ptr, size);
-		AssertF(ret != NULL, "[os] `HeapReAlloc(0x%p, %zu)` failed\n", ptr, size);
+		AssertF(ret != NULL, "[OS] `HeapReAlloc(0x%p, %zu)` failed\n", ptr, size);
 		return ret ? ret : ptr;
 	}
 	if (ptr != NULL)
 	{
 		BOOL const ok = HeapFree(fl_os.heap, 0, ptr);
-		AssertF(ok == TRUE, "[os] `HeapFree(0x%p)` failed\n", ptr);
+		AssertF(ok == TRUE, "[OS] `HeapFree(0x%p)` failed\n", ptr);
 		return ok ? NULL : ptr;
 	}
 	return NULL;
@@ -738,7 +739,7 @@ void * os_memory_heap(void * ptr, size_t size) {
 void * os_memory_reserve(size_t size) {
 	// `size` is rounded up to the next page boundary
 	void * ret = VirtualAlloc(NULL, size, MEM_RESERVE, PAGE_READWRITE);
-	AssertF(ret != NULL, "[os] `VirtualAlloc(NULL, %zu, MEM_RESERVE)` failed\n", size);
+	AssertF(ret != NULL, "[OS] `VirtualAlloc(NULL, %zu, MEM_RESERVE)` failed\n", size);
 	return ret;
 	// @info win32 virtual memory
 	// https://learn.microsoft.com/windows/win32/api/memoryapi/nf-memoryapi-virtualalloc
@@ -748,14 +749,14 @@ void os_memory_release(void * ptr, size_t size) {
 	(void)size; // @note "this parameter must be 0 (zero)"
 	// "The function frees the entire region that is reserved in the initial allocation"
 	BOOL const ok = VirtualFree(ptr, 0, MEM_RELEASE);
-	AssertF(ok == TRUE, "[os] `VirtualFree(0x%p, 0, MEM_RELEASE)` failed\n", ptr);
+	AssertF(ok == TRUE, "[OS] `VirtualFree(0x%p, 0, MEM_RELEASE)` failed\n", ptr);
 	// @info win32 virtual memory
 	// https://learn.microsoft.com/windows/win32/api/memoryapi/nf-memoryapi-virtualfree
 }
 
 void os_memory_commit(void * ptr, size_t size) {
 	void const * mem = VirtualAlloc(ptr, size, MEM_COMMIT, PAGE_READWRITE);
-	AssertF(mem != NULL, "[os] `VirtualAlloc(0x%p, %zu, MEM_COMMIT)` failed\n", ptr, size);
+	AssertF(mem != NULL, "[OS] `VirtualAlloc(0x%p, %zu, MEM_COMMIT)` failed\n", ptr, size);
 	// @info win32 virtual memory
 	// https://learn.microsoft.com/windows/win32/api/memoryapi/nf-memoryapi-virtualalloc
 }
@@ -764,7 +765,7 @@ void os_memory_decommit(void * ptr, size_t size) {
 	// 1) if `ptr` is the base and `size == 0`, decommits the entire region
 	// 2) otherwise decommits all memory pages that contain the range
 	BOOL const ok = VirtualFree(ptr, size, MEM_DECOMMIT);
-	AssertF(ok == TRUE, "[os] `VirtualFree(0x%p, %zu, MEM_DECOMMIT)` failed\n", ptr, size);
+	AssertF(ok == TRUE, "[OS] `VirtualFree(0x%p, %zu, MEM_DECOMMIT)` failed\n", ptr, size);
 	// @info win32 virtual memory
 	// https://learn.microsoft.com/windows/win32/api/memoryapi/nf-memoryapi-virtualfree
 }
@@ -775,18 +776,18 @@ void os_memory_decommit(void * ptr, size_t size) {
 
 void * os_shared_load(char * name) {
 	void * ret = LoadLibraryA(name);
-	AssertF(ret != NULL, "[os] `LoadLibraryA(\"%s\")` failed\n", name);
+	AssertF(ret != NULL, "[OS] `LoadLibraryA(\"%s\")` failed\n", name);
 	return ret;
 }
 
 void os_shared_drop(void * inst) {
 	BOOL const ok = FreeLibrary(inst);
-	AssertF(ok == TRUE, "[os] `FreeLibrary(\"0x%p\")` failed\n", inst);
+	AssertF(ok == TRUE, "[OS] `FreeLibrary(\"0x%p\")` failed\n", inst);
 }
 
 void * os_shared_find(void * inst, char * name) {
 	void * ret = (void *)GetProcAddress(inst, name);
-	AssertF(ret != NULL, "[os] `GetProcAddress(0x%p, \"%s\")` failed\n", inst, name);
+	AssertF(ret != NULL, "[OS] `GetProcAddress(0x%p, \"%s\")` failed\n", inst, name);
 	return ret;
 }
 
@@ -813,10 +814,10 @@ DWORD os_thread_entry_point(LPVOID data) {
 }
 
 struct OS_Thread * os_thread_init(struct OS_Thread_IInfo info) {
-	struct OS_Thread * ret = os_memory_heap(NULL, sizeof(*ret));
+	struct OS_Thread * ret = os_memory_global_heap(NULL, sizeof(*ret));
 	ret->info = info;
 	ret->handle = CreateThread(NULL, 0, os_thread_entry_point, ret, 0, &ret->os_id);
-	Assert(ret->handle != NULL, "[os] `CreateThread` failed\n");
+	Assert(ret->handle != NULL, "[OS] `CreateThread` failed\n");
 	return ret;
 	// @info win32 threads
 	// https://learn.microsoft.com/windows/win32/api/processthreadsapi/nf-processthreadsapi-createthread
@@ -824,9 +825,9 @@ struct OS_Thread * os_thread_init(struct OS_Thread_IInfo info) {
 
 void os_thread_free(struct OS_Thread * inst) {
 	BOOL const ok = CloseHandle(inst->handle);
-	Assert(ok == TRUE, "[os] `CloseHandle` failed\n");
+	Assert(ok == TRUE, "[OS] `CloseHandle` failed\n");
 	mem_zero(inst, sizeof(*inst));
-	os_memory_heap(inst, 0);
+	os_memory_global_heap(inst, 0);
 }
 
 void os_thread_join(struct OS_Thread * inst) {

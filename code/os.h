@@ -61,7 +61,7 @@ u64 os_timer_get_nanos(void);
 // memory
 // ---- ---- ---- ----
 
-void * os_memory_heap(void * ptr, size_t size);
+void * os_memory_global_heap(void * ptr, size_t size);
 
 void * os_memory_reserve(size_t size);
 void   os_memory_release(void * ptr, size_t size);

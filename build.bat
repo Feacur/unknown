@@ -34,6 +34,7 @@ if "%clean%" == "true" (
 )
 
 rem prepare common tools
+rem @note there's also "glslangValidator.exe"
 where -q "glslc.exe" || (
 	if not "%VULKAN_SDK%" == "" (
 		set "PATH=%PATH%;%VULKAN_SDK%/Bin"
@@ -45,14 +46,13 @@ where -q "glslc.exe" || (
 )
 
 rem shader compiler flags
-set shaderc=start /d "build" /b glslc
-set shaderc=%shaderc% -Werror
-if "%optimize%" == "inspect" set shaderc=%shaderc% -O0 -g -DBUILD_OPTIMIZE=BUILD_OPTIMIZE_INSPECT
-if "%optimize%" == "develop" set shaderc=%shaderc% -O  -g -DBUILD_OPTIMIZE=BUILD_OPTIMIZE_DEVELOP
-if "%optimize%" == "release" set shaderc=%shaderc% -O     -DBUILD_OPTIMIZE=BUILD_OPTIMIZE_RELEASE
+set SHADERC=start /d "build" /b glslc -Werror
+if "%optimize%" == "inspect" set SHADERC=%SHADERC% -O0 -g -DBUILD_OPTIMIZE=BUILD_OPTIMIZE_INSPECT
+if "%optimize%" == "develop" set SHADERC=%SHADERC% -O  -g -DBUILD_OPTIMIZE=BUILD_OPTIMIZE_DEVELOP
+if "%optimize%" == "release" set SHADERC=%SHADERC% -O     -DBUILD_OPTIMIZE=BUILD_OPTIMIZE_RELEASE
 
-set vertc=%shaderc% -DBUILD_STAGE=BUILD_STAGE_VERTEX
-set fragc=%shaderc% -DBUILD_STAGE=BUILD_STAGE_FRAGMENT
+set VTXC=%SHADERC% -DBUILD_STAGE=BUILD_STAGE_VERTEX
+set FRGC=%SHADERC% -DBUILD_STAGE=BUILD_STAGE_FRAGMENT
 
 rem build
 call :build_%toolset%
@@ -86,59 +86,54 @@ goto :eof
 	rem https://learn.microsoft.com/cpp/c-runtime-library/crt-library-features
 
 	rem C compiler flags
-	set cc=start /d "temp" /b clang -c -ansi -pedantic-errors
-	set cc=%cc% -std=c99 -fno-exceptions -fno-rtti -ffp-contract=off
-	set cc=%cc% -I"%code%" -I"%project%"
-	set cc=%cc% -I"%code%/_external"
-	set cc=%cc% -I"%VULKAN_SDK%/Include"
-	set cc=%cc% -flto=thin
-	if "%optimize%" == "inspect" set cc=%cc% -O0 -g -DBUILD_OPTIMIZE=BUILD_OPTIMIZE_INSPECT -DBUILD_TARGET=BUILD_TARGET_TERMINAL
-	if "%optimize%" == "develop" set cc=%cc% -Og -g -DBUILD_OPTIMIZE=BUILD_OPTIMIZE_DEVELOP -DBUILD_TARGET=BUILD_TARGET_TERMINAL
-	if "%optimize%" == "release" set cc=%cc% -O2    -DBUILD_OPTIMIZE=BUILD_OPTIMIZE_RELEASE -DBUILD_TARGET=BUILD_TARGET_GRAPHICAL
-	if "%arch%" == "32" set cc=%cc% -m32
-	if "%arch%" == "64" set cc=%cc% -m64
+	set CC=start /d "temp" /b clang -ansi -c -std=c99 -pedantic-errors -fno-exceptions -fno-rtti -ffp-contract=off -flto=thin
+	set CC=%CC% -I"%code%" -I"%project%"
+	set CC=%CC% -I"%code%/_external"
+	set CC=%CC% -I"%VULKAN_SDK%/Include"
+	if "%optimize%" == "inspect" set CC=%CC% -O0 -g -DBUILD_OPTIMIZE=BUILD_OPTIMIZE_INSPECT -DBUILD_TARGET=BUILD_TARGET_TERMINAL
+	if "%optimize%" == "develop" set CC=%CC% -Og -g -DBUILD_OPTIMIZE=BUILD_OPTIMIZE_DEVELOP -DBUILD_TARGET=BUILD_TARGET_TERMINAL
+	if "%optimize%" == "release" set CC=%CC% -O2    -DBUILD_OPTIMIZE=BUILD_OPTIMIZE_RELEASE -DBUILD_TARGET=BUILD_TARGET_GRAPHICAL
+	if "%arch%" == "32" set CC=%CC% -m32
+	if "%arch%" == "64" set CC=%CC% -m64
 
 	rem resource compiler flags
-	set resc=start /d "temp" /b llvm-rc
-	set resc=%resc% -nologo
+	set RESC=start /d "temp" /b llvm-rc
+	set RESC=%RESC% -nologo
 
 	rem linker flags
-	set linkd=start /d "build" /b /wait lld-link
-	set linkd=%linkd% -WX
-	set linkd=%linkd% -nologo -incremental:no -noimplib
-	set linkd=%linkd% kernel32.lib user32.lib
-	if "%CRT%" == "static"  set linkd=%linkd% -nodefaultlib libucrt.lib libvcruntime.lib libcmt.lib
-	if "%CRT%" == "dynamic" set linkd=%linkd% -nodefaultlib    ucrt.lib    vcruntime.lib msvcrt.lib
-	if "%optimize%" == "inspect" set linkd=%linkd% -debug:full -subsystem:console
-	if "%optimize%" == "develop" set linkd=%linkd% -debug:full -subsystem:console
-	if "%optimize%" == "release" set linkd=%linkd% -debug:none -subsystem:windows
-	if "%arch%" == "32" set linkd=%linkd% -machine:x86
-	if "%arch%" == "64" set linkd=%linkd% -machine:x64
+	set LD=start /d "build" /b /wait lld-link -nologo -incremental:no -noimplib -WX
+	set LD=%LD% kernel32.lib user32.lib
+	if "%CRT%" == "static"  set LD=%LD% -nodefaultlib libucrt.lib libvcruntime.lib libcmt.lib
+	if "%CRT%" == "dynamic" set LD=%LD% -nodefaultlib    ucrt.lib    vcruntime.lib msvcrt.lib
+	if "%optimize%" == "inspect" set LD=%LD% -debug:full -subsystem:console
+	if "%optimize%" == "develop" set LD=%LD% -debug:full -subsystem:console
+	if "%optimize%" == "release" set LD=%LD% -debug:none -subsystem:windows
+	if "%arch%" == "32" set LD=%LD% -machine:x86
+	if "%arch%" == "64" set LD=%LD% -machine:x64
 
 	rem compile the whole group asynchronously by piping
 	rem it into a silent pause command
-	echo.[compile async] %time%
+	echo.[ compile  async ] %time%
 	(
-		%cc% "%code%/base.c" -o "base.o"
-		%cc% "%code%/os_windows.c" -o "os_windows.o"
-		%cc% "%code%/gfx_vulkan.c" -o "gfx_vulkan.o"
-		%cc% "%code%/unknown.c"    -o "unknown.o"
+		%CC% "%code%/base.c" -o "base.o"
+		%CC% "%code%/os_windows.c" -o "os_windows.o"
+		%CC% "%code%/rhi_vulkan.c" -o "rhi_vulkan.o"
+		%CC% "%code%/unknown.c"    -o "unknown.o"
 
-		%resc% "%project%/windows_main.rc" -fo "windows_main.res"
+		%RESC% "%project%/windows_main.rc" -fo "windows_main.res"
 
-		%vertc% "%data%/shader.glsl" -o data/shader_vert.spirv
-		%fragc% "%data%/shader.glsl" -o data/shader_frag.spirv
+		%VTXC% "%data%/shader.glsl" -o data/shader_vert.spirv
+		%FRGC% "%data%/shader.glsl" -o data/shader_frag.spirv
 	) | pause > nul
 
 	rem link
 	echo.[link unknown.exe] %time%
-	%linkd% ^
+	%LD% ^
 		"%temp%/base.o" ^
 		"%temp%/os_windows.o" ^
-		"%VULKAN_SDK%/Lib/vulkan-1.lib" ^
-		"%temp%/gfx_vulkan.o" ^
-		"%temp%/unknown.o" "%temp%/windows_main.res" ^
+		"%temp%/rhi_vulkan.o" "%VULKAN_SDK%/Lib/vulkan-1.lib" ^
+		"%temp%/unknown.o"    "%temp%/windows_main.res" ^
 		-out:"unknown.exe"
 
-	echo.[  complete!  ] %time%
+	echo.[    complete    ] %time%
 goto :eof
