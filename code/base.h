@@ -8,12 +8,6 @@
 #include "_project.h" // IWYU pragma: export
 
 // ---- ---- ---- ----
-// forward
-// ---- ---- ---- ----
-
-struct Arena;
-
-// ---- ---- ---- ----
 // meta
 // ---- ---- ---- ----
 
@@ -38,7 +32,7 @@ enum Meta_Type {
 size_t get_meta_type_size(enum Meta_Type type);
 
 // ---- ---- ---- ----
-// types, basic
+// types: basic
 // ---- ---- ---- ----
 
 typedef uint8_t   u8;
@@ -55,7 +49,16 @@ typedef float    f32;
 typedef double   f64;
 
 // ---- ---- ---- ----
-// types, bits
+// forward
+// ---- ---- ---- ----
+
+struct Memory_Arena;
+
+typedef u32 Hash32(void const * key);
+typedef u64 Hash64(void const * key);
+
+// ---- ---- ---- ----
+// types: bits
 // ---- ---- ---- ----
 
 typedef union Bits32 bits32;
@@ -73,8 +76,15 @@ union Bits64 {
 };
 
 // ---- ---- ---- ----
-// types, array
+// types: array
 // ---- ---- ---- ----
+
+typedef struct Array arr;
+struct Array {
+	size_t capacity, count;
+	size_t type_size;
+	void * buffer;
+};
 
 typedef struct Array_U8 arr8;
 struct Array_U8 {
@@ -95,7 +105,7 @@ struct Array_U32 {
 };
 
 // ---- ---- ---- ----
-// types, string
+// types: string
 // ---- ---- ---- ----
 
 typedef struct String_U8 str8;
@@ -117,13 +127,12 @@ struct String_U32 {
 };
 
 // ---- ---- ---- ----
-// types, table
+// types: hashmap
 // ---- ---- ---- ----
 
-typedef u32 Table_Hash(void const * key);
-typedef struct Table tbl;
-struct Table {
-	Table_Hash * hash;
+typedef struct Hash_Map hmap;
+struct Hash_Map {
+	Hash32 * hash;
 	size_t key_size, val_size;
 	size_t capacity, count;
 	void * keys, * vals;
@@ -131,7 +140,7 @@ struct Table {
 };
 
 // ---- ---- ---- ----
-// types, f32 math
+// types: f32 math
 // ---- ---- ---- ----
 
 typedef struct Vector2_F32 vec2;
@@ -166,7 +175,7 @@ struct Matrix4_F32 {
 };
 
 // ---- ---- ---- ----
-// types, s32 math
+// types: s32 math
 // ---- ---- ---- ----
 
 typedef struct Vector2_S32 svec2;
@@ -185,7 +194,7 @@ struct Vector4_S32 {
 };
 
 // ---- ---- ---- ----
-// types, u32 math
+// types: u32 math
 // ---- ---- ---- ----
 
 typedef struct Vector2_U32 uvec2;
@@ -204,7 +213,7 @@ struct Vector4_U32 {
 };
 
 // ---- ---- ---- ----
-// functions, basic
+// functions: basic
 // ---- ---- ---- ----
 
 char   base_get_chr(void);
@@ -219,9 +228,10 @@ size_t next_po2_size(size_t value);
 size_t align_size(size_t value, size_t align);
 
 u64 mul_div_u64(u64 value, u64 mul, u64 div);
+size_t mul_div_size(size_t value, size_t mul, size_t div);
 
 // ---- ---- ---- ----
-// functions, f32
+// functions: f32
 // ---- ---- ---- ----
 
 bool inf32(f32 value);
@@ -258,7 +268,7 @@ f32 prev_f32(f32 value);
 f32 next_f32(f32 value);
 
 // ---- ---- ---- ----
-// functions, f64
+// functions: f64
 // ---- ---- ---- ----
 
 bool inf64(f64 value);
@@ -295,7 +305,7 @@ f64 prev_f64(f64 value);
 f64 next_f64(f64 value);
 
 // ---- ---- ---- ----
-// functions, limit
+// functions: limit
 // ---- ---- ---- ----
 
 u8  min_u8(u8   v1,  u8 v2);
@@ -311,7 +321,7 @@ s64 min_s64(s64 v1, s64 v2);
 f32 min_f32(f32 v1, f32 v2);
 f64 min_f64(f64 v1, f64 v2);
 
-long min_long(long v1, long v2);
+long   min_long(long v1, long v2);
 size_t min_size(size_t v1, size_t v2);
 
 u8  max_u8(u8   v1,  u8 v2);
@@ -327,7 +337,7 @@ s64 max_s64(s64 v1, s64 v2);
 f32 max_f32(f32 v1, f32 v2);
 f64 max_f64(f64 v1, f64 v2);
 
-long max_long(long v1, long v2);
+long   max_long(long v1, long v2);
 size_t max_size(size_t v1, size_t v2);
 
 u8  clamp_u8(u8   v,  u8 min,  u8 max);
@@ -343,11 +353,11 @@ s64 clamp_s64(s64 v, s64 min, s64 max);
 f32 clamp_f32(f32 v, f32 min, f32 max);
 f64 clamp_f64(f64 v, f64 min, f64 max);
 
-long clamp_long(long v, long min, long max);
+long   clamp_long(long v, long min, long max);
 size_t clamp_size(size_t v, size_t min, size_t max);
 
 // ---- ---- ---- ----
-// functions, hashing
+// functions: hashing
 // ---- ---- ---- ----
 
 u32 hash32_fnv1(void const * value, size_t size);
@@ -359,39 +369,49 @@ u64 hash64_djb2(void const * value, size_t size);
 u64 hash64_xorshift(u64 value);
 
 // ---- ---- ---- ----
-// functions, array
+// functions: array
 // ---- ---- ---- ----
 
-void arr8_append_unique(arr8 * target, u8 value);
-void arr16_append_unique(arr16 * target, u16 value);
-void arr32_append_unique(arr32 * target, u32 value);
+struct Array array_init(size_t val_size);
+void         array_free(struct Array * inst);
+
+void         array_arena(struct Array * inst, struct Memory_Arena * arena, size_t count);
+void         array_resize(struct Array * inst, size_t new_capacity, size_t min_capacity);
+
+void *       array_get(struct Array * inst, size_t index);
+void         array_set(struct Array * inst, size_t index, void const * value);
+void         array_push(struct Array * inst, void const * value);
+void *       array_pop(struct Array * inst);
+void         array_remove(struct Array * inst, size_t index);
+
+void arr8_append_unique(arr8 * inst, u8 value);
+void arr16_append_unique(arr16 * inst, u16 value);
+void arr32_append_unique(arr32 * inst, u32 value);
 
 // ---- ---- ---- ----
-// functions, string
+// functions: string
 // ---- ---- ---- ----
 
-void str8_append(str8 * target, str8 value);
-void str16_append(str16 * target, str16 value);
-void str32_append(str32 * target, str32 value);
+void str8_append(str8 * inst, str8 value);
+void str16_append(str16 * inst, str16 value);
+void str32_append(str32 * inst, str32 value);
 
 // ---- ---- ---- ----
-// functions, table
+// functions: table
 // ---- ---- ---- ----
 
-struct Table table_init(Table_Hash * hash, size_t key_size, size_t val_size);
-void table_free(struct Table * table);
+struct Hash_Map hash_map_init(Hash32 * hash, size_t key_size, size_t val_size);
+void            hash_map_free(struct Hash_Map * inst);
 
-void table_allocate_scratch(struct Table * table, struct Arena * scratch, size_t count);
-void table_ensure_capacity(struct Table * table, size_t count);
+void            hash_map_arena(struct Hash_Map * inst, struct Memory_Arena * scratch, size_t count);
+void            hash_map_resize(struct Hash_Map * inst, size_t target_count);
 
-void * table_get(struct Table * table, void const * key);
-void table_set(struct Table * table, void const * key, void const * val);
-
-void table_remove(struct Table * table, void const * key);
-bool table_get_or_set(struct Table * table, void const * key, void * val);
+void *          hash_map_get(struct Hash_Map * inst, void const * key);
+void            hash_map_set(struct Hash_Map * inst, void const * key, void const * val);
+void            hash_map_remove(struct Hash_Map * inst, void const * key);
 
 // ---- ---- ---- ----
-// functions, f32 math, vector
+// functions: f32 math, vector
 // ---- ---- ---- ----
 
 vec2 vec2_add(vec2 l, vec2 r);
@@ -422,7 +442,7 @@ f32  vec2_crs(vec2 l, vec2 r);
 vec3 vec3_crs(vec3 l, vec3 r);
 
 // ---- ---- ---- ----
-// functions, f32 math, quaternion
+// functions: f32 math, quaternion
 // ---- ---- ---- ----
 
 quat quat_axis(vec3 axis, f32 radians);
@@ -432,7 +452,7 @@ vec3 quat_transform(quat q, vec3 v);
 void quat_get_axes(vec4 q, vec3 * x, vec3 * y, vec3 * z);
 
 // ---- ---- ---- ----
-// functions, f32 math, matrix
+// functions: f32 math, matrix
 // ---- ---- ---- ----
 
 vec2 mat2_mul_vec(mat2 l, vec2 r);
@@ -455,7 +475,7 @@ mat4 mat4_projection(
 );
 
 // ---- ---- ---- ----
-// functions, s32 math, vector
+// functions: s32 math, vector
 // ---- ---- ---- ----
 
 svec2 svec2_add(svec2 l, svec2 r);
@@ -486,7 +506,7 @@ s32   svec2_crs(svec2 l, svec2 r);
 svec3 svec3_crs(svec3 l, svec3 r);
 
 // ---- ---- ---- ----
-// functions, u32 math, vector
+// functions: u32 math, vector
 // ---- ---- ---- ----
 
 uvec2 uvec2_add(uvec2 l, uvec2 r);
@@ -677,21 +697,21 @@ AttrGlobal() AttrExternal() mat4 const mat4_i;
 // memory
 // ---- ---- ---- ----
 
-struct Arena_IInfo {
+struct Memory_Arena_IInfo {
 	size_t reserve;
 	size_t commit;
 };
 
-struct Arena * arena_init(struct Arena_IInfo info);
-void arena_free(struct Arena * arena);
+struct Memory_Arena * arena_init(struct Memory_Arena_IInfo info);
+void memory_arena_free(struct Memory_Arena * inst);
 
-u64 arena_get_position(struct Arena const * arena);
-void arena_set_position(struct Arena * arena, u64 position);
+size_t memory_arena_get_position(struct Memory_Arena const * inst);
+void memory_arena_set_position(struct Memory_Arena * inst, size_t position);
 
-void * arena_push(struct Arena * arena, size_t size, size_t align);
-void arena_pop(struct Arena * arena, size_t size);
+void * memory_arena_push(struct Memory_Arena * inst, size_t size, size_t align);
+void memory_arena_pop(struct Memory_Arena * inst, size_t size);
 
-#define ArenaPushArray(arena, type, count) (type *)arena_push((arena), sizeof(type) * (count), AlignOf(type))
+#define MemoryArenaPushArray(arena, type, count) (type *)memory_arena_push((arena), sizeof(type) * (count), AlignOf(type))
 
 // ---- ---- ---- ----
 // thread context
@@ -700,13 +720,13 @@ void arena_pop(struct Arena * arena, size_t size);
 void thread_ctx_init(void);
 void thread_ctx_free(void);
 
-struct Arena * thread_ctx_get_scratch(void);
+struct Memory_Arena * thread_ctx_get_scratch(void);
 
 // ---- ---- ---- ----
 // file utilities
 // ---- ---- ---- ----
 
-struct Array_U8 base_file_read(struct Arena * arena, char const * name);
+struct Array_U8 base_file_read(struct Memory_Arena * arena, char const * name);
 
 // ---- ---- ---- ----
 // formatting
@@ -722,32 +742,32 @@ uint32_t fmt_buffer(char * out_buffer, char * fmt, ...);
 // images
 // ---- ---- ---- ----
 
-struct File_Image {
+struct Resource_Image {
 	size_t   scalar_size;
 	uvec2    size;
 	u8       channels;
 	void   * buffer;
 };
 
-struct File_Image image_init(arr8 const file);
-void image_free(struct File_Image * resource);
+struct Resource_Image resource_image_init(arr8 const file);
+void resource_image_free(struct Resource_Image * inst);
 
 // ---- ---- ---- ----
 // models
 // ---- ---- ---- ----
 
-struct FVertex {
+struct RMVertex {
 	vec3 position;
 	vec2 texture;
 	vec3 normal;
 };
 
-struct File_Model;
-struct File_Model * model_init(char const * name);
-void model_free(struct File_Model * resource);
+struct Resource_Model;
+struct Resource_Model * resource_model_init(char const * name);
+void resource_model_free(struct Resource_Model * inst);
 
-void model_dump_vertices(struct File_Model * model, struct Arena * scratch,
-	struct FVertex ** out_vertices, u32 * out_vertices_count,
+void resource_model_dump_vertices(struct Resource_Model * inst, struct Memory_Arena * scratch,
+	struct RMVertex ** out_vertices, u32 * out_vertices_count,
 	u16            ** out_indices,  u16 * out_indices_count
 );
 

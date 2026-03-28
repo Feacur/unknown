@@ -1,9 +1,9 @@
 #include "os.h"
-#include "gfx.h"
+#include "rhi.h"
 
 AttrFileLocal()
 void main_on_resize(void) {
-	gfx_notify_surface_resized();
+	rhi_notify_surface_resized();
 }
 
 int main(int argc, char * argv[]) {
@@ -20,7 +20,7 @@ int main(int argc, char * argv[]) {
 		.on_resize = main_on_resize,
 	});
 	thread_ctx_init();
-	gfx_init();
+	rhi_init();
 
 	u64 const nanos_fixed_delta           = SecondsToNanos(1.0 / 50.0);
 	u64 const nanos_variable_delta_limit  = SecondsToNanos(1.0 / 20.0);
@@ -43,7 +43,7 @@ int main(int argc, char * argv[]) {
 		}
 
 		// -- variable timestep
-		gfx_tick();
+		rhi_tick();
 
 		// -- wait for the frame to end
 		u64 const nanos_payload_end = os_timer_get_nanos();
@@ -59,7 +59,7 @@ int main(int argc, char * argv[]) {
 		nanos_variable_delta = clamp_u64(nanos_frame_delta, 1, nanos_variable_delta_limit);
 	}
 
-	gfx_free();
+	rhi_free();
 	thread_ctx_free();
 	os_free();
 

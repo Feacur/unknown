@@ -242,7 +242,7 @@ AssertSize(f32, 4);
 AssertSize(f64, 8);
 
 // ---- ---- ---- ----
-// functions, basic
+// functions: basic
 // ---- ---- ---- ----
 
 char base_get_chr(void) {
@@ -296,8 +296,15 @@ u64 mul_div_u64(u64 value, u64 mul, u64 div) {
 	     + (value % div) * mul / div;
 }
 
+size_t mul_div_size(size_t value, size_t mul, size_t div) {
+	// it is a `value * mul / div` equivalent
+	// but with a tiny overflow protection
+	return (value / div) * mul
+	     + (value % div) * mul / div;
+}
+
 // ---- ---- ---- ----
-// functions, f32
+// functions: f32
 // ---- ---- ---- ----
 
 bool inf32(f32 value) { return isinf(value); }
@@ -343,7 +350,7 @@ f32 next_f32(f32 value) {
 }
 
 // ---- ---- ---- ----
-// functions, f64
+// functions: f64
 // ---- ---- ---- ----
 
 bool inf64(f64 value) { return isinf(value); }
@@ -389,7 +396,7 @@ f64 next_f64(f64 value) {
 }
 
 // ---- ---- ---- ----
-// functions, limit
+// functions: limit
 // ---- ---- ---- ----
 
 u8  min_u8(u8   v1,  u8 v2) { return v1 < v2 ? v1 : v2; }
@@ -441,7 +448,7 @@ long clamp_long(long v, long min, long max) { return v < min ? min : v > max ? m
 size_t clamp_size(size_t v, size_t min, size_t max) { return v < min ? min : v > max ? max : v; }
 
 // ---- ---- ---- ----
-// functions, hashing
+// functions: hashing
 // ---- ---- ---- ----
 
 u32 hash32_fnv1(void const * value, size_t size) {
@@ -489,102 +496,179 @@ u64 hash64_xorshift(u64 value) {
 }
 
 // ---- ---- ---- ----
-// functions, array
+// functions: array
 // ---- ---- ---- ----
 
-void arr8_append_unique(arr8 * target, u8 value) {
-	for (size_t i = 0; i < target->count; i++)
-		if (target->buffer[i] == value)
-			return;
-	target->buffer[target->count++] = value;
+struct Array array_init(size_t val_size) {
+	struct Array table = {.type_size = val_size};
+	return table;
 }
 
-void arr16_append_unique(arr16 * target, u16 value) {
-	for (size_t i = 0; i < target->count; i++)
-		if (target->buffer[i] == value)
-			return;
-	target->buffer[target->count++] = value;
+void array_free(struct Array * inst) {
+	os_memory_heap(inst->buffer, 0);
+	mem_zero(inst, sizeof(*inst));
 }
 
-void arr32_append_unique(arr32 * target, u32 value) {
-	for (size_t i = 0; i < target->count; i++)
-		if (target->buffer[i] == value)
+void array_arena(struct Array * inst, struct Memory_Arena * arena, size_t count) {
+	inst->capacity = count;
+	inst->buffer = memory_arena_push(arena, inst->type_size * count, /*align*/ clamp_size(inst->type_size, sizeof(u8), sizeof(u64)));
+}
+
+void array_resize(struct Array * inst, size_t new_capacity, size_t min_capacity) {
+	if (new_capacity < min_capacity)
+		new_capacity = min_capacity;
+	inst->capacity = new_capacity;
+	inst->buffer = os_memory_heap(inst->buffer, inst->type_size * inst->capacity);
+}
+
+void * array_get(struct Array * inst, size_t index) {
+	Assert(index < inst->capacity, "[base] overflow");
+	return (u8 *)inst->buffer + inst->type_size * index;
+}
+
+void array_set(struct Array * inst, size_t index, void const * value) {
+	Assert(index < inst->capacity, "[base] overflow");
+	mem_copy(value, (u8 *)inst->buffer + inst->type_size * index, inst->type_size);
+}
+
+void array_push(struct Array * inst, void const * value) {
+	if (inst->count >= inst->capacity)
+		array_resize(inst, inst->capacity * 2, 16);
+	array_set(inst, inst->count, value);
+	inst->count += 1;
+}
+
+void * array_pop(struct Array * inst) {
+	inst->count -= 1;
+	return array_get(inst, inst->count);
+}
+
+void array_remove(struct Array * inst, size_t index) {
+	inst->count -= 1;
+	if (index < inst->count)
+		mem_copy(
+			(u8 *)inst->buffer + inst->type_size * inst->count,
+			(u8 *)inst->buffer + inst->type_size * index,
+			inst->type_size
+		);
+}
+
+void arr8_append_unique(arr8 * inst, u8 value) {
+	for (size_t i = 0; i < inst->count; i++)
+		if (inst->buffer[i] == value)
 			return;
-	target->buffer[target->count++] = value;
+	inst->buffer[inst->count++] = value;
+}
+
+void arr16_append_unique(arr16 * inst, u16 value) {
+	for (size_t i = 0; i < inst->count; i++)
+		if (inst->buffer[i] == value)
+			return;
+	inst->buffer[inst->count++] = value;
+}
+
+void arr32_append_unique(arr32 * inst, u32 value) {
+	for (size_t i = 0; i < inst->count; i++)
+		if (inst->buffer[i] == value)
+			return;
+	inst->buffer[inst->count++] = value;
 }
 
 // ---- ---- ---- ----
-// functions, table
+// functions: string
 // ---- ---- ---- ----
 
-enum Table_Mark {
-	TABLE_MARK_NONE,
-	TABLE_MARK_FULL,
-	TABLE_MARK_SKIP,
+void str8_append(str8 * inst, str8 value) {
+	mem_copy(value.buffer, inst->buffer + inst->count, value.count);
+	inst->count += value.count;
+}
+
+void str16_append(str16 * inst, str16 value) {
+	mem_copy(value.buffer, inst->buffer + inst->count, value.count);
+	inst->count += value.count;
+}
+
+void str32_append(str32 * inst, str32 value) {
+	mem_copy(value.buffer, inst->buffer + inst->count, value.count);
+	inst->count += value.count;
+}
+
+// ---- ---- ---- ----
+// functions: table
+// ---- ---- ---- ----
+
+enum Hash_Map_Mark {
+	HASH_MAP_MARK_NONE,
+	HASH_MAP_MARK_FULL,
+	HASH_MAP_MARK_SKIP,
 };
 
 AttrFileLocal()
-size_t table_find_index(struct Table const * table, void const * key) {
+size_t hash_map_find_index(struct Hash_Map const * inst, void const * key) {
 	size_t empty = SIZE_MAX;
-	if (table->count >= table->capacity)
+	if (inst->count >= inst->capacity)
 		return empty;
 
-	u32 const hash = table->hash(key);
-	size_t const mask = table->capacity - 1;
+	u32 const hash = inst->hash(key);
+	size_t const mask = inst->capacity - 1;
 	size_t const base = hash & mask;
-	for (size_t i = 0; i < table->capacity; i++) {
+	for (size_t i = 0; i < inst->capacity; i++) {
 		size_t const index = (base + i) & mask;
-		u8 const mark = table->marks[index];
-		if (mark == TABLE_MARK_FULL) {
-			void const * table_key = (u8*)table->keys + index * table->key_size;
-			u32  const   table_hash = table->hash(table_key);
-			if (table_hash == hash && mem_equals(table_key, key, table->key_size))
+		u8 const mark = inst->marks[index];
+		if (mark == HASH_MAP_MARK_FULL) {
+			void const * hash_map_key = (u8*)inst->keys + index * inst->key_size;
+			u32  const   hash_map_hash = inst->hash(hash_map_key);
+			if (hash_map_hash == hash && mem_equals(hash_map_key, key, inst->key_size))
 				return index;
 		}
 		else {
 			if (empty == SIZE_MAX) empty = index;
-			if (mark == TABLE_MARK_NONE) break;
+			if (mark == HASH_MAP_MARK_NONE) break;
 		}
 	}
 
 	return empty;
 }
 
-struct Table table_init(Table_Hash * hash, size_t key_size, size_t val_size) {
-	struct Table table = {.hash = hash, .key_size = key_size, .val_size = val_size};
+struct Hash_Map hash_map_init(Hash32 * hash, size_t key_size, size_t val_size) {
+	struct Hash_Map table = {.hash = hash, .key_size = key_size, .val_size = val_size};
 	return table;
 }
 
-void table_free(struct Table * table) {
-	os_memory_heap(table->keys, 0);
-	os_memory_heap(table->vals, 0);
-	os_memory_heap(table->marks, 0);
-	mem_zero(table, sizeof(*table));
+void hash_map_free(struct Hash_Map * inst) {
+	os_memory_heap(inst->keys, 0);
+	os_memory_heap(inst->vals, 0);
+	os_memory_heap(inst->marks, 0);
+	mem_zero(inst, sizeof(*inst));
 }
 
-void table_allocate_scratch(struct Table * table, struct Arena * scratch, size_t count) {
-	table->capacity = max_size(next_po2_size(count), table->capacity);
-	table->keys  = arena_push(scratch, table->capacity * table->key_size, clamp_size(table->key_size, sizeof(u8), sizeof(u64)) );
-	table->vals  = arena_push(scratch, table->capacity * table->val_size, clamp_size(table->val_size, sizeof(u8), sizeof(u64)) );
-	table->marks = arena_push(scratch, table->capacity * sizeof(u8),      sizeof(u8));
+void hash_map_arena(struct Hash_Map * inst, struct Memory_Arena * arena, size_t count) {
+	AttrFuncLocal() size_t const mark_size = sizeof(*inst->marks);
+	inst->capacity = next_po2_size(count);
+	inst->keys  = memory_arena_push(arena, inst->capacity * inst->key_size, /*align*/ clamp_size(inst->key_size, sizeof(u8), sizeof(u64)));
+	inst->vals  = memory_arena_push(arena, inst->capacity * inst->val_size, /*align*/ clamp_size(inst->val_size, sizeof(u8), sizeof(u64)));
+	inst->marks = memory_arena_push(arena, inst->capacity * mark_size,      /*align*/ clamp_size(mark_size,      sizeof(u8), sizeof(u64)));
 }
 
-void table_ensure_capacity(struct Table * table, size_t count) {
-	void * keys = table->keys;
-	void * vals = table->vals;
-	u8   * marks = table->marks;
+void hash_map_resize(struct Hash_Map * inst, size_t target_count) {
+	AttrFuncLocal() size_t const mark_size = sizeof(*inst->marks);
+	size_t const prev_capacity = inst->capacity;
 
-	size_t const prev_capacity = table->capacity;
-	table->capacity = max_size(next_po2_size(count), table->capacity); table->count = 0;
-	table->keys = os_memory_heap(NULL, table->capacity * table->key_size);
-	table->vals = os_memory_heap(NULL, table->capacity * table->val_size);
-	table->marks = os_memory_heap(NULL, table->capacity * sizeof(u8));
+	void * keys = inst->keys;
+	void * vals = inst->vals;
+	u8   * marks = inst->marks;
+
+	inst->capacity = next_po2_size(target_count); inst->count = 0;
+	inst->keys  = os_memory_heap(NULL, inst->capacity * inst->key_size);
+	inst->vals  = os_memory_heap(NULL, inst->capacity * inst->val_size);
+	inst->marks = os_memory_heap(NULL, inst->capacity * mark_size);
 
 	for (size_t i = 0; i < prev_capacity; i++) {
-		if (marks[i] != TABLE_MARK_FULL) continue;
-		void const * key  = (u8*)keys + i * table->key_size;
-		void const * val  = (u8*)vals + i * table->val_size;
-		table_set(table, key, val);
+		if (marks[i] != HASH_MAP_MARK_FULL)
+			continue;
+		void const * key  = (u8*)keys + i * inst->key_size;
+		void const * val  = (u8*)vals + i * inst->val_size;
+		hash_map_set(inst, key, val);
 	}
 
 	os_memory_heap(keys, 0);
@@ -592,66 +676,35 @@ void table_ensure_capacity(struct Table * table, size_t count) {
 	os_memory_heap(marks, 0);
 }
 
-void * table_get(struct Table * table, void const * key) {
-	size_t const index = table_find_index(table, key);
-	if (index >= table->capacity) return NULL;
-	if (table->marks[index] == TABLE_MARK_FULL)
-		return (u8*)table->vals + index * table->val_size;
+void * hash_map_get(struct Hash_Map * inst, void const * key) {
+	size_t const index = hash_map_find_index(inst, key);
+	if (index < inst->capacity && inst->marks[index] == HASH_MAP_MARK_FULL)
+		return (u8*)inst->vals + index * inst->val_size;
 	return NULL;
 }
 
-void table_set(struct Table * table, void const * key, void const * val) {
-	size_t const index = table_find_index(table, key);
-	Assert(index < table->capacity, "[base] table overflow");
-	mem_copy(key, (u8*)table->keys + index * table->key_size, table->key_size);
-	mem_copy(val, (u8*)table->vals + index * table->val_size, table->val_size);
-	if (table->marks[index] != TABLE_MARK_FULL) table->count++;
-	table->marks[index] = TABLE_MARK_FULL;
+void hash_map_set(struct Hash_Map * inst, void const * key, void const * val) {
+	if (inst->count >= inst->capacity * 2 / 3)
+		hash_map_resize(inst, inst->capacity * 2);
+	size_t const index = hash_map_find_index(inst, key);
+	Assert(index < inst->capacity, "[base] overflow");
+	mem_copy(key, (u8*)inst->keys + index * inst->key_size, inst->key_size);
+	mem_copy(val, (u8*)inst->vals + index * inst->val_size, inst->val_size);
+	inst->count += (inst->marks[index] != HASH_MAP_MARK_FULL);
+	inst->marks[index] = HASH_MAP_MARK_FULL;
 }
 
-void table_remove(struct Table * table, void const * key) {
-	size_t const index = table_find_index(table, key);
-	Assert(index < table->capacity, "[base] table overflow");
-	if (table->marks[index] != TABLE_MARK_FULL) return;
-	table->marks[index] = TABLE_MARK_SKIP;
-	table->count--;
-}
-
-bool table_get_or_set(struct Table * table, void const * key, void * val) {
-	size_t const index = table_find_index(table, key);
-	Assert(index < table->capacity, "[base] table overflow");
-	if (table->marks[index] == TABLE_MARK_FULL) {
-		mem_copy((u8*)table->vals + index * table->val_size, val, table->val_size);
-		return true;
+void hash_map_remove(struct Hash_Map * inst, void const * key) {
+	size_t const index = hash_map_find_index(inst, key);
+	Assert(index < inst->capacity, "[base] overflow");
+	if (inst->marks[index] == HASH_MAP_MARK_FULL) {
+		inst->marks[index] = HASH_MAP_MARK_SKIP;
+		inst->count--;
 	}
-	mem_copy(key, (u8*)table->keys + index * table->key_size, table->key_size);
-	mem_copy(val, (u8*)table->vals + index * table->val_size, table->val_size);
-	table->marks[index] = TABLE_MARK_FULL;
-	table->count++;
-	return false;
 }
 
 // ---- ---- ---- ----
-// functions, string
-// ---- ---- ---- ----
-
-void str8_append(str8 * target, str8 value) {
-	mem_copy(value.buffer, target->buffer + target->count, value.count);
-	target->count += value.count;
-}
-
-void str16_append(str16 * target, str16 value) {
-	mem_copy(value.buffer, target->buffer + target->count, value.count);
-	target->count += value.count;
-}
-
-void str32_append(str32 * target, str32 value) {
-	mem_copy(value.buffer, target->buffer + target->count, value.count);
-	target->count += value.count;
-}
-
-// ---- ---- ---- ----
-// functions, f32 math, vector
+// functions: f32 math, vector
 // ---- ---- ---- ----
 
 vec2 vec2_add(vec2 l, vec2 r) { return (vec2){l.x + r.x, l.y + r.y}; }
@@ -686,7 +739,7 @@ vec3 vec3_crs(vec3 l, vec3 r) { return (vec3){
 }; }
 
 // ---- ---- ---- ----
-// functions, f32 math, quaternion
+// functions: f32 math, quaternion
 // ---- ---- ---- ----
 
 quat quat_axis(vec3 axis, f32 radians) {
@@ -770,7 +823,7 @@ z = quat_transform(q, {0,0,1})
 }
 
 // ---- ---- ---- ----
-// functions, s32 math, matrix
+// functions: s32 math, matrix
 // ---- ---- ---- ----
 
 vec2 mat2_mul_vec(mat2 l, vec2 r) { return (vec2){
@@ -921,7 +974,7 @@ Oz = (ndc_near - ndc_far) * view_near * view_far / (view_far - view_near)
 }
 
 // ---- ---- ---- ----
-// functions, s32 math, vector
+// functions: s32 math, vector
 // ---- ---- ---- ----
 
 svec2 svec2_add(svec2 l, svec2 r) { return (svec2){l.x + r.x, l.y + r.y}; }
@@ -956,7 +1009,7 @@ svec3 svec3_crs(svec3 l, svec3 r) { return (svec3){
 }; }
 
 // ---- ---- ---- ----
-// functions, u32 math, vector
+// functions: u32 math, vector
 // ---- ---- ---- ----
 
 uvec2 uvec2_add(uvec2 l, uvec2 r) { return (uvec2){l.x + r.x, l.y + r.y}; }
@@ -1055,61 +1108,56 @@ AttrGlobal() mat4 const mat4_i = (mat4){
 // memory
 // ---- ---- ---- ----
 
-struct Arena {
-	// @note this structure doubles as the header
-	struct Arena_IInfo info;
-	size_t reserved;
-	size_t commited;
-	size_t offset;
-	// chain
-	u64 base;
-	struct Arena * prev;
-	struct Arena * curr;
+struct Memory_Arena {
+	struct Memory_Arena_IInfo info;
+	size_t reserved, commited, base, offset;
+	struct Memory_Arena * prev, * curr;
 	// @todo pad and protect the boundary
 };
 
-struct Arena * arena_init(struct Arena_IInfo info) {
+struct Memory_Arena * arena_init(struct Memory_Arena_IInfo info) {
 	Assert(g_os_info.page_size > 0, "[base] call `os_init` first\n");
-	size_t const maximum = SIZE_MAX - (sizeof(struct Arena) + g_os_info.page_size - 1);
+	size_t const maximum = SIZE_MAX - (sizeof(struct Memory_Arena) + g_os_info.page_size - 1);
 
 	Assert(info.reserve <= maximum, "[base] trying to reserve too much\n");
 	Assert(info.commit <= info.reserve, "[base] trying to commit too much\n");
 
-	size_t const reserve = align_size(sizeof(struct Arena) + info.reserve, g_os_info.page_size);
-	size_t const commit = align_size(sizeof(struct Arena) + info.commit, g_os_info.page_size);
-	struct Arena * ret = os_memory_reserve(reserve);
-	if (ret == NULL) os_exit(1);
+	size_t const reserve = align_size(sizeof(struct Memory_Arena) + info.reserve, g_os_info.page_size);
+	size_t const commit = align_size(sizeof(struct Memory_Arena) + info.commit, g_os_info.page_size);
+	struct Memory_Arena * ret = os_memory_reserve(reserve);
+	if (ret == NULL)
+		os_exit(1);
 	os_memory_commit(ret, commit);
-	*ret = (struct Arena){
+	*ret = (struct Memory_Arena){
 		.info = info,
 		.reserved = reserve,
 		.commited = commit,
-		.offset = sizeof(struct Arena),
+		.offset = sizeof(struct Memory_Arena),
 		//
 		.curr = ret,
 	};
 	return ret;
 }
 
-void arena_free(struct Arena * arena) {
-	struct Arena * curr = arena->curr;
-	for (struct Arena * prev = NULL; curr != NULL; curr = prev) {
+void memory_arena_free(struct Memory_Arena * arena) {
+	struct Memory_Arena * curr = arena->curr;
+	for (struct Memory_Arena * prev = NULL; curr != NULL; curr = prev) {
 		prev = curr->prev;
 		os_memory_release(curr, curr->reserved);
 	}
 }
 
-u64 arena_get_position(struct Arena const * arena) {
-	struct Arena const * curr = arena->curr;
+size_t memory_arena_get_position(struct Memory_Arena const * arena) {
+	struct Memory_Arena const * curr = arena->curr;
 	return curr->base + curr->offset;
 }
 
-void arena_set_position(struct Arena * arena, u64 position) {
-	struct Arena * curr = arena->curr;
+void memory_arena_set_position(struct Memory_Arena * arena, size_t position) {
+	struct Memory_Arena * curr = arena->curr;
 
-	Assert(position <= arena_get_position(arena), "[base] arena position overflow\n");
-	Assert(position >= sizeof(struct Arena), "[base] arena position underflow\n");
-	for (struct Arena * it = NULL; curr->base >= position; curr = it) {
+	Assert(position <= memory_arena_get_position(arena), "[base] overflow\n");
+	Assert(position >= sizeof(struct Memory_Arena), "[base] underflow\n");
+	for (struct Memory_Arena * it = NULL; curr->base >= position; curr = it) {
 		it = curr->prev;
 		os_memory_release(curr, curr->reserved);
 	}
@@ -1118,17 +1166,17 @@ void arena_set_position(struct Arena * arena, u64 position) {
 	arena->curr = curr;
 }
 
-void * arena_push(struct Arena * arena, size_t size, size_t align) {
+void * memory_arena_push(struct Memory_Arena * arena, size_t size, size_t align) {
 	Assert(size > 0, "[base] size should be positive\n");
 	Assert(align > 0, "[base] alignment should be positive\n");
-	struct Arena * curr = arena->curr;
+	struct Memory_Arena * curr = arena->curr;
 
 	if (curr->offset + size > curr->reserved) {
-		curr = arena_init((struct Arena_IInfo){
-			.reserve = max_size(curr->info.reserve, sizeof(struct Arena) + size),
-			.commit = max_size(curr->info.commit, sizeof(struct Arena) + size),
+		curr = arena_init((struct Memory_Arena_IInfo){
+			.reserve = max_size(curr->info.reserve, sizeof(struct Memory_Arena) + size),
+			.commit = max_size(curr->info.commit, sizeof(struct Memory_Arena) + size),
 		});
-		curr->base = arena_get_position(arena);
+		curr->base = memory_arena_get_position(arena);
 		curr->prev = arena;
 		arena->curr = curr;
 	}
@@ -1145,9 +1193,9 @@ void * arena_push(struct Arena * arena, size_t size, size_t align) {
 	return memory;
 }
 
-void arena_pop(struct Arena * arena, size_t size) {
-	Assert(arena_get_position(arena) >= size, "[base] arena pop underflow\n");
-	arena_set_position(arena, arena_get_position(arena) - size);
+void memory_arena_pop(struct Memory_Arena * arena, size_t size) {
+	size_t const position = memory_arena_get_position(arena);
+	memory_arena_set_position(arena, position - size);
 }
 
 // ---- ---- ---- ----
@@ -1156,22 +1204,22 @@ void arena_pop(struct Arena * arena, size_t size) {
 
 AttrFileLocal() AttrThreadLocal()
 struct Thread_Ctx {
-	struct Arena * scratch;
+	struct Memory_Arena * scratch;
 } ftl_thread_ctx;
 
 void thread_ctx_init(void) {
-	ftl_thread_ctx.scratch = arena_init((struct Arena_IInfo){
+	ftl_thread_ctx.scratch = arena_init((struct Memory_Arena_IInfo){
 		.reserve = MB(64),
 		.commit = KB(64),
 	});
 }
 
 void thread_ctx_free(void) {
-	arena_free(ftl_thread_ctx.scratch);
+	memory_arena_free(ftl_thread_ctx.scratch);
 	mem_zero(&ftl_thread_ctx, sizeof(ftl_thread_ctx));
 }
 
-struct Arena * thread_ctx_get_scratch(void) {
+struct Memory_Arena * thread_ctx_get_scratch(void) {
 	return ftl_thread_ctx.scratch;
 }
 
@@ -1179,7 +1227,7 @@ struct Arena * thread_ctx_get_scratch(void) {
 // file utilities
 // ---- ---- ---- ----
 
-arr8 base_file_read(struct Arena * arena, char const * name) {
+arr8 base_file_read(struct Memory_Arena * arena, char const * name) {
 	arr8 ret = {0};
 	struct OS_File * file = os_file_init((struct OS_File_IInfo){
 		.name = name,
@@ -1188,9 +1236,10 @@ arr8 base_file_read(struct Arena * arena, char const * name) {
 		u64 const required = os_file_get_size(file);
 		ret.capacity = min_u64(required + 1, ~ret.capacity);
 		AssertF(required <= ret.capacity, "[base] file \"%s\" is too large %llu / %zu\n", name, required, ret.capacity);
-		ret.buffer = ArenaPushArray(arena, u8, ret.capacity);
+		ret.buffer = MemoryArenaPushArray(arena, u8, ret.capacity);
 		ret.count = os_file_read(file, 0, ret.capacity, ret.buffer);
-		if (ret.count < ret.capacity) ret.buffer[ret.count] = 0;
+		if (ret.count < ret.capacity)
+			ret.buffer[ret.count] = 0;
 		os_file_free(file);
 	}
 	return ret;
@@ -1213,9 +1262,8 @@ struct Fmt_Print_Ctx {
 AttrFileLocal()
 char * fmt_print_write(char const * input, void * user, int length) {
 	struct Fmt_Print_Ctx * ctx = user;
-	if (length > 0) {
+	if (length > 0)
 		fwrite(input, sizeof(*input), (size_t)length, stdout);
-	}
 	return ctx->scratch;
 }
 
@@ -1275,14 +1323,14 @@ uint32_t fmt_buffer(char * out_buffer, char * fmt, ...) {
 # include <stb/stb_image.h>
 #include "_internal/warnings_pop.h"
 
-struct File_Image image_init(arr8 const bytes) {
+struct Resource_Image resource_image_init(arr8 const bytes) {
 	stbi_set_flip_vertically_on_load(1);
 	int const channels_override = STBI_rgb_alpha;
 
 	int size_x, size_y, channels;
 	stbi_uc * image = stbi_load_from_memory(bytes.buffer, (int)bytes.count, &size_x, &size_y, &channels, channels_override);
 
-	return (struct File_Image){
+	return (struct Resource_Image){
 		.scalar_size = sizeof(stbi_uc),
 		.size        = {(u32)size_x, (u32)size_y},
 		.channels    = (u8)(channels_override ? channels_override : channels),
@@ -1290,7 +1338,7 @@ struct File_Image image_init(arr8 const bytes) {
 	};
 }
 
-void image_free(struct File_Image * inst) {
+void resource_image_free(struct Resource_Image * inst) {
 	STBI_FREE(inst->buffer);
 	mem_zero(inst, sizeof(*inst));
 }
@@ -1310,7 +1358,7 @@ void image_free(struct File_Image * inst) {
 # include <tinyobj_loader_c.h>
 #include "_internal/warnings_pop.h"
 
-struct File_Model {
+struct Resource_Model {
 	tinyobj_attrib_t     attrib;
 	tinyobj_shape_t    * shapes;    size_t shapes_num;
 	tinyobj_material_t * materials; size_t materials_num;
@@ -1318,49 +1366,46 @@ struct File_Model {
 };
 
 AttrFileLocal()
-u32 model_hash_tovi(void const * opaque) {
+u32 resource_model_hash_tovi(void const * opaque) {
 	return hash32_fnv1(opaque, sizeof(tinyobj_vertex_index_t));
 }
 
 AttrFileLocal()
-struct FVertex model_tovi_to_vertex(struct File_Model * inst, tinyobj_vertex_index_t tovi) {
-	struct FVertex vertex = {0};
-	if (tovi.v_idx >= 0) {
+struct RMVertex resource_model_tovi_to_vertex(struct Resource_Model * inst, tinyobj_vertex_index_t tovi) {
+	struct RMVertex vertex = {0};
+	if (tovi.v_idx >= 0)
 		vertex.position = (vec3){
 			.x = inst->attrib.vertices[3 * tovi.v_idx + 0],
 			.y = inst->attrib.vertices[3 * tovi.v_idx + 1],
 			.z = inst->attrib.vertices[3 * tovi.v_idx + 2],
 		};
-	}
-	if (tovi.vt_idx >= 0) {
+	if (tovi.vt_idx >= 0)
 		vertex.texture = (vec2){
 			.x = inst->attrib.texcoords[2 * tovi.vt_idx + 0],
 			.y = inst->attrib.texcoords[2 * tovi.vt_idx + 1],
 		};
-	}
-	if (tovi.vn_idx >= 0) {
+	if (tovi.vn_idx >= 0)
 		vertex.normal = (vec3){
 			.x = inst->attrib.normals[3 * tovi.vn_idx + 0],
 			.y = inst->attrib.normals[3 * tovi.vn_idx + 1],
 			.z = inst->attrib.normals[3 * tovi.vn_idx + 2],
 		};
-	}
 	return vertex;
 }
 
 AttrFileLocal()
 void model_init_read_file(void *ctx, const char *filename, int is_mtl, const char *obj_filename, char **buf, size_t *len) {
-	struct Arena * scratch = ctx;
+	struct Memory_Arena * scratch = ctx;
 	arr8 const file_bytes = base_file_read(scratch, filename);
 	*buf = (void *)file_bytes.buffer;
 	*len = file_bytes.count;
 }
 
-struct File_Model * model_init(char const * name) {
-	struct Arena * scratch = thread_ctx_get_scratch();
-	u64 const scratch_position = arena_get_position(scratch);
+struct Resource_Model * resource_model_init(char const * name) {
+	struct Memory_Arena * scratch = thread_ctx_get_scratch();
+	u64 const scratch_position = memory_arena_get_position(scratch);
 
-	struct File_Model * file_parsed = os_memory_heap(NULL, sizeof(*file_parsed));
+	struct Resource_Model * file_parsed = os_memory_heap(NULL, sizeof(*file_parsed));
 	file_parsed->status = tinyobj_parse_obj(&file_parsed->attrib,
 		&file_parsed->shapes, &file_parsed->shapes_num,
 		&file_parsed->materials, &file_parsed->materials_num,
@@ -1368,38 +1413,43 @@ struct File_Model * model_init(char const * name) {
 		TINYOBJ_FLAG_TRIANGULATE
 	);
 
-	arena_set_position(scratch, scratch_position);
+	memory_arena_set_position(scratch, scratch_position);
 	return file_parsed;
 }
 
-void model_free(struct File_Model * inst) {
+void resource_model_free(struct Resource_Model * inst) {
 	tinyobj_attrib_free(&inst->attrib);
-	if (inst->shapes) tinyobj_shapes_free(inst->shapes, inst->shapes_num);
-	if (inst->materials) tinyobj_materials_free(inst->materials, inst->materials_num);
+	if (inst->shapes)
+		tinyobj_shapes_free(inst->shapes, inst->shapes_num);
+	if (inst->materials)
+		tinyobj_materials_free(inst->materials, inst->materials_num);
 	mem_zero(inst, sizeof(*inst));
 	os_memory_heap(inst, 0);
 }
 
-void model_dump_vertices(struct File_Model * inst, struct Arena * scratch,
-	struct FVertex ** out_vertices, u32 * out_vertices_count,
+void resource_model_dump_vertices(struct Resource_Model * inst, struct Memory_Arena * scratch,
+	struct RMVertex ** out_vertices, u32 * out_vertices_count,
 	u16            ** out_indices,  u16 * out_indices_count
 ) {
 	u32 const indices_count        = inst->attrib.num_faces;
-	struct FVertex * vertices = ArenaPushArray(scratch, struct FVertex, indices_count);
-	u16                 * indices  = ArenaPushArray(scratch, u16,                 indices_count);
+	struct RMVertex * vertices = MemoryArenaPushArray(scratch, struct RMVertex, indices_count);
+	u16                 * indices  = MemoryArenaPushArray(scratch, u16,                 indices_count);
 	*out_vertices = vertices; *out_indices  = indices;
 
-	tbl tovi_to_index = table_init(&model_hash_tovi, sizeof(tinyobj_vertex_index_t), sizeof(u16));
-	table_allocate_scratch(&tovi_to_index, scratch, indices_count);
+	struct Hash_Map tovi_to_index = hash_map_init(&resource_model_hash_tovi, sizeof(tinyobj_vertex_index_t), sizeof(u16));
+	hash_map_arena(&tovi_to_index, scratch, indices_count);
 
 	u16 unique_vertices_count = 0;
 	for (u32 i = 0; i < indices_count; i++) {
 		tinyobj_vertex_index_t const tovi = inst->attrib.faces[i];
 		u16 index = unique_vertices_count;
-		if (!table_get_or_set(&tovi_to_index, &tovi, &index)) {
-			*vertices++ = model_tovi_to_vertex(inst, tovi);
+		u16 const * existing = hash_map_get(&tovi_to_index, &tovi);
+		if (existing == NULL) {
+			hash_map_set(&tovi_to_index, &tovi, &index);
+			*vertices++ = resource_model_tovi_to_vertex(inst, tovi);
 			unique_vertices_count++;
 		}
+		else index = *existing;
 		*indices++ = index;
 	}
 
