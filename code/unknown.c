@@ -1,10 +1,6 @@
 #include "os.h"
 #include "rhi.h"
 
-AttrFileLocal()
-void main_on_resize(void) {
-	rhi_notify_surface_resized();
-}
 
 int main(int argc, char * argv[]) {
 	fmt_print("[main] args:\n");
@@ -17,7 +13,6 @@ int main(int argc, char * argv[]) {
 		.window_size_x = 900,
 		.window_size_y = 600,
 		.window_caption = "unknown",
-		.on_resize = main_on_resize,
 	});
 	thread_ctx_init();
 	rhi_init();

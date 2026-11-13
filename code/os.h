@@ -12,7 +12,6 @@ struct OS_IInfo {
 	u16          window_size_x;
 	u16          window_size_y;
 	char const * window_caption;
-	void (* on_resize)(void);
 };
 
 void os_init(struct OS_IInfo info);

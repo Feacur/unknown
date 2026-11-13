@@ -4,6 +4,7 @@
 #include <signal.h>
 
 #include "base.h"
+#include "rhi.h"
 #include "windows_resources.h"
 
 AttrFileLocal()
@@ -398,8 +399,7 @@ LRESULT os_window_procedure(HWND window, UINT message, WPARAM wparam, LPARAM lpa
 				if (fl_os.width != width || fl_os.height != height) {
 					fl_os.width = width;
 					fl_os.height = height;
-					if (fl_os.info.on_resize)
-						fl_os.info.on_resize();
+					rhi_notify_surface_resized();
 				}
 				return 0;
 			}
